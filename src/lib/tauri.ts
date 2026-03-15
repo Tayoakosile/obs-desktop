@@ -1,0 +1,69 @@
+import { invoke } from '@tauri-apps/api/core'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+
+import type {
+  AppSettings,
+  BootstrapPayload,
+  DesktopActionResponse,
+  InstalledPluginRecord,
+  InstallProgressEvent,
+  InstallRequest,
+  InstallResponse,
+  GitHubReleaseInfo,
+  ObsDetectionState,
+  UninstallResponse,
+} from '../types/desktop'
+
+const INSTALL_PROGRESS_EVENT = 'install-progress'
+
+export const desktopApi = {
+  bootstrap() {
+    return invoke<BootstrapPayload>('bootstrap')
+  },
+  detectObs() {
+    return invoke<ObsDetectionState>('detect_obs')
+  },
+  chooseObsDirectory() {
+    return invoke<ObsDetectionState>('choose_obs_directory')
+  },
+  saveObsPath(path: string) {
+    return invoke<ObsDetectionState>('save_obs_path', { path })
+  },
+  saveAppSettings(settings: AppSettings) {
+    return invoke<AppSettings>('save_app_settings', { settings })
+  },
+  installPlugin(request: InstallRequest) {
+    return invoke<InstallResponse>('install_plugin', { request })
+  },
+  getGitHubReleaseInfo(pluginId: string) {
+    return invoke<GitHubReleaseInfo | null>('get_github_release_info', { pluginId })
+  },
+  uninstallPlugin(pluginId: string) {
+    return invoke<UninstallResponse>('uninstall_plugin', { pluginId })
+  },
+  adoptInstallation(pluginId: string) {
+    return invoke<InstalledPluginRecord>('adopt_installation', { pluginId })
+  },
+  openExternal(url: string) {
+    return invoke<void>('open_external', { url })
+  },
+  revealPath(path: string) {
+    return invoke<void>('reveal_path', { path })
+  },
+  clearAppCache() {
+    return invoke<DesktopActionResponse>('clear_app_cache')
+  },
+  exportLogs() {
+    return invoke<DesktopActionResponse>('export_logs')
+  },
+  resetAppState() {
+    return invoke<DesktopActionResponse>('reset_app_state')
+  },
+  async onInstallProgress(
+    callback: (progress: InstallProgressEvent) => void,
+  ): Promise<UnlistenFn> {
+    return listen<InstallProgressEvent>(INSTALL_PROGRESS_EVENT, (event) => {
+      callback(event.payload)
+    })
+  },
+}

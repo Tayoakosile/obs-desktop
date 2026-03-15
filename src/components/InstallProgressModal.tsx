@@ -1,0 +1,328 @@
+import {
+  AlertCircle,
+  ArrowRight,
+  CheckCircle2,
+  Download,
+  ExternalLink,
+  FolderOpen,
+  ShieldCheck,
+  X,
+} from 'lucide-react'
+
+import type { InstallProgressEvent, InstallResponse } from '../types/desktop'
+import type { PluginCatalogEntry } from '../types/plugin'
+import { isScriptPlugin } from '../lib/utils'
+import { Badge } from './ui/Badge'
+import { Button } from './ui/Button'
+
+interface InstallProgressModalProps {
+  plugin?: PluginCatalogEntry
+  progress: InstallProgressEvent | null
+  lastResponse: InstallResponse | null
+  onClose: () => void
+  onOpenInstallFolder?: () => void
+  onOpenSource?: () => void
+  onViewPlugin?: () => void
+}
+
+function ProgressSteps({
+  currentStage,
+}: {
+  currentStage: InstallProgressEvent['stage']
+}) {
+  const steps = [
+    { key: 'preparing', label: 'Preparing' },
+    { key: 'downloading', label: 'Downloading' },
+    { key: 'extracting', label: 'Extracting' },
+    { key: 'inspecting', label: 'Inspecting package' },
+    { key: 'installing', label: 'Installing' },
+  ] as const
+
+  const activeIndex = (() => {
+    switch (currentStage) {
+      case 'preparing':
+        return 0
+      case 'downloading':
+        return 1
+      case 'extracting':
+        return 2
+      case 'inspecting':
+      case 'review':
+        return 3
+      default:
+        return 4
+    }
+  })()
+
+  return (
+    <div className="space-y-2">
+      {steps.map((step, index) => (
+        <div
+          className={[
+            'flex items-center gap-3 rounded-lg border px-3 py-2 text-sm',
+            index < activeIndex
+              ? 'border-primary/20 bg-primary/10 text-white'
+              : index === activeIndex
+                ? 'border-white/10 bg-white/[0.05] text-white'
+                : 'border-white/10 bg-white/[0.02] text-slate-500',
+          ].join(' ')}
+          key={step.key}
+        >
+          <span
+            className={[
+              'flex size-5 items-center justify-center rounded-full text-[11px] font-semibold',
+              index <= activeIndex ? 'bg-primary text-white' : 'bg-white/10 text-slate-500',
+            ].join(' ')}
+          >
+            {index + 1}
+          </span>
+          <span>{step.label}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function InstallProgressModal({
+  lastResponse,
+  onClose,
+  onOpenInstallFolder,
+  onOpenSource,
+  onViewPlugin,
+  plugin,
+  progress,
+}: InstallProgressModalProps) {
+  if (!progress) {
+    return null
+  }
+
+  const isTerminal = progress.terminal ?? false
+  const isError = progress.stage === 'error'
+  const isReview = progress.stage === 'review' || Boolean(lastResponse?.reviewPlan)
+  const isManual = progress.stage === 'manual'
+  const isScriptInstall = isScriptPlugin(
+    plugin,
+    lastResponse?.installedPlugin,
+    lastResponse?.selectedAssetName,
+  )
+  const scriptFilePath =
+    lastResponse?.installedPlugin?.sourceType === 'script'
+      ? (lastResponse.downloadPath ??
+        lastResponse.installedPlugin.downloadPath ??
+        null)
+      : null
+
+  const title = (() => {
+    if (isError) {
+      return 'Installation failed'
+    }
+
+    if (isReview) {
+      return 'Review required'
+    }
+
+    if (isManual) {
+      return 'Installer downloaded'
+    }
+
+    if (isTerminal && isScriptInstall) {
+      return 'OBS Script Installed'
+    }
+
+    if (isTerminal) {
+      return 'Installation completed'
+    }
+
+    return 'Installing plugin'
+  })()
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#06070b]/68 p-6 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-xl border border-white/10 bg-background-dark p-5 shadow-panel">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-[18px] font-semibold text-white">{title}</h2>
+            <p className="mt-1 text-sm text-slate-400">
+              {plugin ? `${plugin.name} • v${plugin.version}` : 'Preparing installation'}
+            </p>
+          </div>
+          <button
+            className="rounded-lg border border-white/10 p-2 text-slate-500 transition-colors hover:bg-white/[0.04] hover:text-white"
+            onClick={onClose}
+            type="button"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {isTerminal && !isError && isScriptInstall ? (
+          <div className="mt-5 space-y-4">
+            <div className="flex items-start gap-3 rounded-lg border border-emerald-400/20 bg-emerald-500/10 p-4">
+              <CheckCircle2 className="mt-0.5 size-5 text-emerald-300" />
+              <div>
+                <p className="text-sm text-slate-200">
+                  The script was copied to your OBS scripts directory.
+                </p>
+                <p className="mt-2 text-sm text-slate-300">
+                  In OBS: <strong>Tools → Scripts → + → select the file</strong>.
+                </p>
+              </div>
+            </div>
+
+            {scriptFilePath ? (
+              <div className="rounded-lg border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Installed file path
+                </p>
+                <p className="mt-2 break-all font-mono text-xs text-slate-300">
+                  {scriptFilePath}
+                </p>
+              </div>
+            ) : null}
+
+            <div className="flex flex-wrap gap-2">
+              {onOpenInstallFolder ? (
+                <Button variant="secondary" onClick={onOpenInstallFolder}>
+                  <FolderOpen className="size-4" />
+                  Open Scripts Folder
+                </Button>
+              ) : null}
+              {onViewPlugin ? (
+                <Button variant="outline" onClick={onViewPlugin}>
+                  <ArrowRight className="size-4" />
+                  View Plugin Details
+                </Button>
+              ) : null}
+              <Button variant="ghost" onClick={onClose}>
+                Close
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 space-y-4">
+            {isError ? (
+              <div className="flex items-start gap-3 rounded-lg border border-red-500/20 bg-red-500/10 p-4">
+                <AlertCircle className="mt-0.5 size-5 text-red-300" />
+                <div>
+                  <p className="text-sm font-semibold text-white">The install was stopped safely.</p>
+                  <p className="mt-1 text-sm leading-7 text-slate-300">
+                    {progress.detail ?? progress.message}
+                  </p>
+                </div>
+              </div>
+            ) : isReview ? (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-amber-400/20 bg-amber-500/10 p-4">
+                  <p className="text-sm font-semibold text-white">The package needs review.</p>
+                  <p className="mt-1 text-sm leading-7 text-slate-300">
+                    {lastResponse?.reviewPlan?.summary ?? progress.detail ?? progress.message}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {onOpenSource ? (
+                    <Button variant="secondary" onClick={onOpenSource}>
+                      <ExternalLink className="size-4" />
+                      Open Source Page
+                    </Button>
+                  ) : null}
+                  {onViewPlugin ? (
+                    <Button variant="outline" onClick={onViewPlugin}>
+                      <ArrowRight className="size-4" />
+                      View Plugin Details
+                    </Button>
+                  ) : null}
+                  <Button variant="ghost" onClick={onClose}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            ) : isManual ? (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-primary/20 bg-primary/10 p-4">
+                  <p className="text-sm font-semibold text-white">The installer is ready.</p>
+                  <p className="mt-1 text-sm leading-7 text-slate-300">
+                    {progress.detail ?? progress.message}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {onOpenSource ? (
+                    <Button variant="secondary" onClick={onOpenSource}>
+                      <ExternalLink className="size-4" />
+                      View Source Page
+                    </Button>
+                  ) : null}
+                  {onViewPlugin ? (
+                    <Button variant="outline" onClick={onViewPlugin}>
+                      <ArrowRight className="size-4" />
+                      View Plugin Details
+                    </Button>
+                  ) : null}
+                  <Button variant="ghost" onClick={onClose}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            ) : isTerminal ? (
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 rounded-lg border border-emerald-400/20 bg-emerald-500/10 p-4">
+                  <CheckCircle2 className="mt-0.5 size-5 text-emerald-300" />
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      {lastResponse?.message ?? 'The install completed successfully.'}
+                    </p>
+                    <p className="mt-1 text-sm leading-7 text-slate-300">
+                      {progress.detail ?? progress.message}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {onViewPlugin ? (
+                    <Button variant="outline" onClick={onViewPlugin}>
+                      <ArrowRight className="size-4" />
+                      View Plugin Details
+                    </Button>
+                  ) : null}
+                  <Button variant="ghost" onClick={onClose}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-start gap-3 rounded-lg border border-white/10 bg-white/[0.03] p-4">
+                  <Download className="mt-0.5 size-5 text-primary" />
+                  <div>
+                    <p className="text-sm font-semibold text-white">{progress.message}</p>
+                    <p className="mt-1 text-sm text-slate-300">{progress.detail}</p>
+                  </div>
+                </div>
+
+                <ProgressSteps currentStage={progress.stage} />
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs uppercase tracking-[0.18em] text-slate-500">
+                    <span>Progress</span>
+                    <span>{progress.progress}%</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-white/[0.06]">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all"
+                      style={{ width: `${progress.progress}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <Badge tone="neutral">
+                    <ShieldCheck className="size-3.5" />
+                    Safe install workflow
+                  </Badge>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}

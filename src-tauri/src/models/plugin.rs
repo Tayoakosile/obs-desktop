@@ -1,0 +1,161 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SupportedPlatform {
+    Windows,
+    Macos,
+    Linux,
+}
+
+impl SupportedPlatform {
+    pub fn current() -> Self {
+        match std::env::consts::OS {
+            "windows" => Self::Windows,
+            "macos" => Self::Macos,
+            "linux" => Self::Linux,
+            _ => Self::Linux,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Windows => "windows",
+            Self::Macos => "macos",
+            Self::Linux => "linux",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PluginPackageInstallType {
+    Archive,
+    External,
+    Guide,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PluginInstallStrategyKind {
+    ObsPlugin,
+    StandaloneTool,
+    Hybrid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginInstallStrategy {
+    pub kind: Option<PluginInstallStrategyKind>,
+    #[serde(default)]
+    pub module_name_aliases: Vec<String>,
+    #[serde(default)]
+    pub binary_name_hints: Vec<String>,
+    #[serde(default)]
+    pub resource_dir_hints: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum PluginPackageFileType {
+    #[serde(rename = "zip")]
+    Zip,
+    #[serde(rename = "tar.gz")]
+    TarGz,
+    #[serde(rename = "tar.xz")]
+    TarXz,
+    #[serde(rename = "exe")]
+    Exe,
+    #[serde(rename = "msi")]
+    Msi,
+    #[serde(rename = "pkg")]
+    Pkg,
+    #[serde(rename = "dmg")]
+    Dmg,
+    #[serde(rename = "deb")]
+    Deb,
+    #[serde(rename = "rpm")]
+    Rpm,
+    #[serde(rename = "appimage")]
+    AppImage,
+    #[serde(rename = "url")]
+    Url,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginPackage {
+    pub id: String,
+    pub os: SupportedPlatform,
+    pub label: String,
+    pub file_type: PluginPackageFileType,
+    pub install_type: PluginPackageInstallType,
+    pub download_url: String,
+    #[serde(default)]
+    pub recommended: bool,
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCatalogEntry {
+    pub id: String,
+    pub module_name: String,
+    pub name: String,
+    pub tagline: String,
+    pub description: String,
+    pub long_description: String,
+    pub author: String,
+    pub version: String,
+    pub supported_platforms: Vec<SupportedPlatform>,
+    #[serde(rename = "supportedOBSVersions", alias = "supportedObsVersions")]
+    pub supported_obs_versions: String,
+    #[serde(rename = "minOBSVersion", alias = "minObsVersion")]
+    pub min_obs_version: String,
+    #[serde(rename = "maxOBSVersion", alias = "maxObsVersion")]
+    pub max_obs_version: Option<String>,
+    pub category: String,
+    pub homepage_url: String,
+    pub source_url: Option<String>,
+    pub github_repo: Option<String>,
+    pub github_release_url: Option<String>,
+    pub github_release_tag: Option<String>,
+    #[serde(default)]
+    pub preferred_asset_patterns: Vec<String>,
+    pub fallback_install_type: Option<PluginPackageInstallType>,
+    pub icon_key: String,
+    pub icon_url: Option<String>,
+    pub screenshots: Vec<String>,
+    pub install_notes: Vec<String>,
+    pub verified: bool,
+    pub featured: bool,
+    pub guide_only: bool,
+    pub manual_install_url: Option<String>,
+    pub status_note: Option<String>,
+    pub last_updated: String,
+    pub download_count: String,
+    pub accent_from: String,
+    pub accent_to: String,
+    #[serde(default)]
+    pub install_strategy: Option<PluginInstallStrategy>,
+    pub packages: Vec<PluginPackage>,
+}
+
+impl PluginCatalogEntry {
+    pub fn package_for(
+        &self,
+        package_id: Option<&str>,
+        platform: &SupportedPlatform,
+    ) -> Option<&PluginPackage> {
+        if let Some(package_id) = package_id {
+            self.packages
+                .iter()
+                .find(|package| package.id == package_id)
+        } else {
+            self.packages
+                .iter()
+                .find(|package| &package.os == platform && package.recommended)
+                .or_else(|| self.packages.iter().find(|package| &package.os == platform))
+        }
+    }
+}

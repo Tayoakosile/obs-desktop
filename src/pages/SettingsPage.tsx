@@ -1,0 +1,452 @@
+import { type ReactNode, useState } from 'react'
+import {
+  Bell,
+  BrushCleaning,
+  FolderCog,
+  Languages,
+  MonitorCog,
+  Palette,
+  Settings2,
+  TerminalSquare,
+  Trash2,
+  Video,
+} from 'lucide-react'
+
+import { Button } from '../components/ui/Button'
+import { ConfirmDialog } from '../components/ui/ConfirmDialog'
+import { cn } from '../lib/utils'
+import { useAppStore } from '../stores/appStore'
+import type { AppSettings } from '../types/desktop'
+
+function getDefaultPreferences(isGlobalInstallTarget: boolean): AppSettings {
+  return {
+    obsPath: null,
+    setupCompleted: false,
+    launchOnStartup: true,
+    minimizeToTray: false,
+    language: 'English (US)',
+    autoDetectObsVersion: true,
+    installScope: isGlobalInstallTarget ? 'global' : 'user',
+    theme: 'dark',
+    accentColor: 'purple',
+    autoUpdatePlugins: true,
+    betaUpdates: false,
+    desktopNotifications: true,
+    releaseNotifications: true,
+    developerNews: false,
+    developerMode: false,
+  }
+}
+
+function SettingToggle({
+  checked,
+  description,
+  disabled,
+  onChange,
+  title,
+}: {
+  checked: boolean
+  description: string
+  disabled?: boolean
+  onChange: (nextValue: boolean) => void
+  title: string
+}) {
+  return (
+    <div className="flex items-center justify-between gap-6 rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
+      <div>
+        <p className="font-semibold text-white">{title}</p>
+        <p className="mt-1 text-sm leading-6 text-slate-400">{description}</p>
+      </div>
+      <button
+        aria-checked={checked}
+        className={cn(
+          'relative h-6 w-11 shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+          checked ? 'bg-primary' : 'bg-white/15',
+        )}
+        disabled={disabled}
+        onClick={() => onChange(!checked)}
+        role="switch"
+        type="button"
+      >
+        <span
+          className={cn(
+            'absolute top-1 h-4 w-4 rounded-full bg-white transition-all',
+            checked ? 'left-6' : 'left-1',
+          )}
+        />
+      </button>
+    </div>
+  )
+}
+
+function SettingSection({
+  children,
+  icon,
+  title,
+}: {
+  children: ReactNode
+  icon: ReactNode
+  title: string
+}) {
+  return (
+    <section>
+      <div className="mb-6 flex items-center gap-3 text-primary">
+        {icon}
+        <h2 className="text-lg font-semibold text-white">{title}</h2>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+export function SettingsPage() {
+  const bootstrap = useAppStore((state) => state.bootstrap)
+  const chooseObsDirectory = useAppStore((state) => state.chooseObsDirectory)
+  const updateSettings = useAppStore((state) => state.updateSettings)
+  const clearCache = useAppStore((state) => state.clearCache)
+  const exportLogs = useAppStore((state) => state.exportLogs)
+  const resetAppData = useAppStore((state) => state.resetAppData)
+  const isSettingsWorking = useAppStore((state) => state.isSettingsWorking)
+
+  const installTargetLabel =
+    bootstrap?.obsDetection.installTargetLabel?.toLowerCase() ?? ''
+  const isGlobalInstallTarget = installTargetLabel.includes('shared') || installTargetLabel.includes('global')
+  const preferences = bootstrap?.settings ?? getDefaultPreferences(isGlobalInstallTarget)
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
+
+  function setPreference<Key extends keyof AppSettings>(key: Key, value: AppSettings[Key]) {
+    void updateSettings({
+      [key]: value,
+    } as Partial<AppSettings>)
+  }
+
+  async function handleChangePath() {
+    try {
+      await chooseObsDirectory()
+    } catch {
+      // Store already reports the specific failure toast.
+    }
+  }
+
+  async function handleResetAppData() {
+    await resetAppData()
+    setIsResetDialogOpen(false)
+  }
+
+  return (
+    <>
+      <div className="mx-auto w-full max-w-5xl space-y-12 pb-16">
+        <header className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-primary/80">
+            Settings
+          </p>
+          <h1 className="text-4xl font-semibold tracking-tight text-white">
+            Manage your desktop utility preferences
+          </h1>
+          <p className="max-w-3xl text-sm leading-7 text-slate-400">
+            Control how OBS Plugin Installer behaves on this machine, where it installs plugins,
+            and how much experimental tooling you want visible while the product is still MVP-scoped.
+          </p>
+        </header>
+
+        <div className="space-y-12">
+          <SettingSection
+            icon={<Settings2 className="size-5" />}
+            title="General Settings"
+          >
+            <div className="space-y-4">
+            <SettingToggle
+              checked={preferences.launchOnStartup}
+              description="Automatically start OBS Plugin Installer when you sign in."
+              disabled={isSettingsWorking}
+              onChange={(nextValue) => setPreference('launchOnStartup', nextValue)}
+              title="Launch on System Startup"
+            />
+            <SettingToggle
+              checked={preferences.minimizeToTray}
+              description="Keep the app available in the background instead of fully closing it."
+              disabled={isSettingsWorking}
+              onChange={(nextValue) => setPreference('minimizeToTray', nextValue)}
+              title="Minimize to System Tray"
+            />
+            <div className="flex items-center justify-between gap-6 rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-white/8 p-2 text-slate-300">
+                  <Languages className="size-4" />
+                </div>
+                <div>
+                  <p className="font-semibold text-white">Interface Language</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">
+                    Choose the display language for the app UI.
+                  </p>
+                </div>
+              </div>
+              <select
+                className="rounded-xl border border-white/10 bg-[#1a1124] px-4 py-2 text-sm text-white outline-none transition-colors focus:border-primary/40 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={isSettingsWorking}
+                onChange={(event) => setPreference('language', event.target.value)}
+                value={preferences.language}
+              >
+                <option>English (US)</option>
+                <option>Deutsch</option>
+                <option>Español</option>
+                <option>Français</option>
+                <option>日本語</option>
+              </select>
+            </div>
+          </div>
+        </SettingSection>
+
+        <SettingSection icon={<Video className="size-5" />} title="OBS Studio Configuration">
+          <div className="space-y-4">
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="min-w-0">
+                  <p className="font-semibold text-white">OBS Installation Path</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">
+                    Where OBS Studio is installed and validated on this device.
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => void handleChangePath()}>
+                  Change Path
+                </Button>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-primary/10 bg-[#100915] px-4 py-3 font-mono text-xs text-primary/90">
+                {bootstrap?.settings.obsPath ?? 'OBS has not been configured yet.'}
+              </div>
+
+              {bootstrap?.obsDetection.installTargetPath ? (
+                <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                    Plugin target
+                  </p>
+                  <p className="mt-2 break-all text-sm text-slate-300">
+                    {bootstrap.obsDetection.installTargetLabel}:{' '}
+                    {bootstrap.obsDetection.installTargetPath}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
+            <SettingToggle
+              checked={preferences.autoDetectObsVersion}
+              description="Refresh compatibility messaging automatically when OBS changes."
+              disabled={isSettingsWorking}
+              onChange={(nextValue) => setPreference('autoDetectObsVersion', nextValue)}
+              title="Auto-detect OBS version"
+            />
+
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-white/8 p-2 text-slate-300">
+                  <FolderCog className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-white">Plugin Install Directory</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-400">
+                    The app decides this safely from your validated OBS setup, but you can still
+                    see which scope is currently active.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <button
+                  className={cn(
+                    'rounded-2xl border px-4 py-3 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60',
+                    preferences.installScope === 'user'
+                      ? 'border-primary bg-primary/10 text-white'
+                      : 'border-white/10 bg-white/[0.03] text-slate-400',
+                  )}
+                  disabled={isSettingsWorking}
+                  onClick={() => setPreference('installScope', 'user')}
+                  type="button"
+                >
+                  User Profile
+                </button>
+                <button
+                  className={cn(
+                    'rounded-2xl border px-4 py-3 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60',
+                    preferences.installScope === 'global'
+                      ? 'border-primary bg-primary/10 text-white'
+                      : 'border-white/10 bg-white/[0.03] text-slate-400',
+                  )}
+                  disabled={isSettingsWorking}
+                  onClick={() => setPreference('installScope', 'global')}
+                  type="button"
+                >
+                  Global (All Users)
+                </button>
+              </div>
+            </div>
+          </div>
+        </SettingSection>
+
+        <SettingSection icon={<Palette className="size-5" />} title="App Appearance">
+          <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-6">
+            <div>
+              <p className="font-semibold text-white">Color Theme</p>
+              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                {(['light', 'dark', 'system'] as const).map((theme) => (
+                  <button
+                    className="text-left disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={isSettingsWorking}
+                    key={theme}
+                    onClick={() => setPreference('theme', theme)}
+                    type="button"
+                  >
+                    <div
+                      className={cn(
+                        'relative aspect-video overflow-hidden rounded-2xl border-2 transition-all',
+                        preferences.theme === theme
+                          ? 'border-primary'
+                          : 'border-white/10',
+                        theme === 'light'
+                          ? 'bg-slate-100'
+                          : theme === 'dark'
+                            ? 'bg-[#140b1f]'
+                            : 'bg-gradient-to-r from-slate-100 via-slate-100 to-[#140b1f]',
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          'absolute inset-2 rounded-xl border',
+                          theme === 'light'
+                            ? 'border-slate-200 bg-white'
+                            : theme === 'dark'
+                              ? 'border-white/10 bg-black/25'
+                              : 'border-white/10 bg-black/15',
+                        )}
+                      />
+                      {preferences.theme === theme ? (
+                        <div className="absolute right-3 top-3 rounded-full bg-primary/20 p-1 text-primary">
+                          <MonitorCog className="size-4" />
+                        </div>
+                      ) : null}
+                    </div>
+                    <p
+                      className={cn(
+                        'mt-2 text-center text-xs font-semibold uppercase tracking-[0.18em]',
+                        preferences.theme === theme ? 'text-primary' : 'text-slate-500',
+                      )}
+                    >
+                      {theme === 'light'
+                        ? 'Light'
+                        : theme === 'dark'
+                          ? 'Dark'
+                          : 'System'}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-8 rounded-[24px] border border-white/10 bg-white/[0.03] p-4">
+              <p className="font-semibold text-white">Accent Color</p>
+              <div className="mt-3 flex items-center gap-3">
+                <div className="size-8 rounded-full bg-primary" />
+                <p className="text-sm leading-6 text-slate-400">
+                  The app uses one system-style accent color to keep the interface clean and
+                  utility-focused.
+                </p>
+              </div>
+            </div>
+          </div>
+        </SettingSection>
+
+        <SettingSection icon={<Bell className="size-5" />} title="Updates & Notifications">
+          <div className="space-y-4">
+            <SettingToggle
+              checked={preferences.autoUpdatePlugins}
+              description="Install curated plugin updates in the background when it is safe to do so."
+              disabled={isSettingsWorking}
+              onChange={(nextValue) => setPreference('autoUpdatePlugins', nextValue)}
+              title="Auto-update plugins"
+            />
+            <SettingToggle
+              checked={preferences.betaUpdates}
+              description="Receive early builds and experimental plugin metadata when available."
+              disabled={isSettingsWorking}
+              onChange={(nextValue) => setPreference('betaUpdates', nextValue)}
+              title="Beta updates"
+            />
+            <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
+              <p className="font-semibold text-white">Notification preferences</p>
+              <div className="mt-4 space-y-3">
+                {[
+                  ['desktopNotifications', 'Desktop notifications for plugin updates'],
+                  ['releaseNotifications', 'New curated plugin releases in your categories'],
+                  ['developerNews', 'OBS Plugin Installer product and developer news'],
+                ].map(([key, label]) => (
+                  <label className="flex items-center gap-3 text-sm text-slate-300" key={key}>
+                    <input
+                      checked={preferences[key as keyof AppSettings] as boolean}
+                      className="h-4 w-4 rounded border-white/10 bg-white/5 text-primary focus:ring-primary"
+                      disabled={isSettingsWorking}
+                      onChange={(event) =>
+                        setPreference(
+                          key as keyof AppSettings,
+                          event.target.checked as never,
+                        )
+                      }
+                      type="checkbox"
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+        </SettingSection>
+
+        <SettingSection
+          icon={<TerminalSquare className="size-5 text-rose-300" />}
+          title="Developer Options"
+        >
+          <div className="rounded-[24px] border border-rose-400/20 bg-rose-500/5 p-6">
+            <SettingToggle
+              checked={preferences.developerMode}
+              description="Reveal advanced diagnostics, compatibility metadata, and install troubleshooting details."
+              disabled={isSettingsWorking}
+              onChange={(nextValue) => setPreference('developerMode', nextValue)}
+              title="Enable Developer Mode"
+            />
+
+            <div className="mt-6 flex flex-wrap gap-3 border-t border-rose-400/10 pt-6">
+              <Button disabled={isSettingsWorking} variant="secondary" onClick={() => void clearCache()}>
+                <BrushCleaning className="size-4" />
+                Clear Cache
+              </Button>
+              <Button disabled={isSettingsWorking} variant="secondary" onClick={() => void exportLogs()}>
+                <FolderCog className="size-4" />
+                Export Logs
+              </Button>
+              <Button
+                className="ml-auto"
+                disabled={isSettingsWorking}
+                variant="outline"
+                onClick={() => setIsResetDialogOpen(true)}
+              >
+                <Trash2 className="size-4" />
+                Reset App Data
+              </Button>
+            </div>
+          </div>
+        </SettingSection>
+        </div>
+      </div>
+
+      <ConfirmDialog
+        cancelLabel="Keep Data"
+        confirmLabel="Reset App Data"
+        description="This resets the app's saved OBS path, tracked install history, and local preferences on this machine. It does not remove plugins or tools that are already installed on disk."
+        isBusy={isSettingsWorking}
+        onCancel={() => setIsResetDialogOpen(false)}
+        onConfirm={() => void handleResetAppData()}
+        open={isResetDialogOpen}
+        title="Reset local app data?"
+      />
+    </>
+  )
+}
