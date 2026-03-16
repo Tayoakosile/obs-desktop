@@ -28,6 +28,7 @@ type TrackableEventName =
 let analyticsInitPromise: Promise<void> | null = null
 let activeDistinctId: string | null = null
 let startupEventTracked = false
+let bridgedIdentityDistinctId: string | null = null
 
 function isAnalyticsConfigured() {
   return (
@@ -123,6 +124,36 @@ async function captureWithFetch(
   })
 }
 
+async function identifyWithDesktopBridge(userAccountId?: string | null) {
+  const distinctId = resolveAnalyticsDistinctId(userAccountId)
+  const identityType = userAccountId?.trim() ? 'account' : 'install'
+
+  if (bridgedIdentityDistinctId === distinctId) {
+    return
+  }
+
+  await desktopApi.captureAnalyticsEvent({
+    apiKey: POSTHOG_PROJECT_KEY,
+    apiHost: POSTHOG_API_HOST,
+    eventName: '$identify',
+    distinctId,
+    timestamp: new Date().toISOString(),
+    properties: {
+      distinct_id: distinctId,
+      $anon_distinct_id: distinctId,
+      $set: {
+        app_version: APP_VERSION,
+        platform: inferRuntimePlatform(),
+        environment: ANALYTICS_ENVIRONMENT,
+        install_id: getOrCreateInstallId(),
+        analytics_identity_type: identityType,
+      },
+    },
+  })
+
+  bridgedIdentityDistinctId = distinctId
+}
+
 function applyAnalyticsIdentity(userAccountId?: string | null) {
   const distinctId = resolveAnalyticsDistinctId(userAccountId)
   const identityType = userAccountId?.trim() ? 'account' : 'install'
@@ -164,6 +195,8 @@ async function initializeAnalytics(userAccountId?: string | null) {
   if (activeDistinctId !== nextDistinctId) {
     applyAnalyticsIdentity(userAccountId)
   }
+
+  await identifyWithDesktopBridge(userAccountId)
 }
 
 scheduleAnalyticsTask(() => initializeAnalytics())
