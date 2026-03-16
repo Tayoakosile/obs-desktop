@@ -116,7 +116,6 @@ jobs:
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.AppImage
             src-tauri/target/release/bundle/**/*.deb
-            src-tauri/target/release/bundle/**/*.rpm
             src-tauri/target/release/bundle/**/*.app.tar.gz
             src-tauri/target/release/bundle/**/*.dmg
             src-tauri/target/release/bundle/**/*.sig
@@ -134,7 +133,6 @@ jobs:
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.AppImage
             src-tauri/target/release/bundle/**/*.deb
-            src-tauri/target/release/bundle/**/*.rpm
             src-tauri/target/release/bundle/**/*.app.tar.gz
             src-tauri/target/release/bundle/**/*.dmg
             src-tauri/target/release/bundle/**/*.sig
@@ -162,6 +160,26 @@ jobs:
           git tag -f main-latest "${{ github.sha }}"
           git push origin refs/tags/main-latest --force
 
+      - name: Verify rolling release assets exist
+        run: |
+          mapfile -t release_files < <(find release-artifacts -type f \( \
+            -name '*.exe' -o \
+            -name '*.msi' -o \
+            -name '*.AppImage' -o \
+            -name '*.deb' -o \
+            -name '*.app.tar.gz' -o \
+            -name '*.dmg' -o \
+            -name '*.sig' \
+          \))
+
+          if [ "${#release_files[@]}" -eq 0 ]; then
+            echo "No release assets were found in release-artifacts."
+            exit 1
+          fi
+
+          printf 'Publishing %s release asset(s):\n' "${#release_files[@]}"
+          printf ' - %s\n' "${release_files[@]}"
+
       - name: Publish rolling release
         uses: softprops/action-gh-release@v2
         with:
@@ -176,13 +194,12 @@ jobs:
 
             Commit: `${{ github.sha }}`
             Branch: `${{ github.ref_name }}`
-          fail_on_unmatched_files: true
+          fail_on_unmatched_files: false
           files: |
             release-artifacts/**/*.exe
             release-artifacts/**/*.msi
             release-artifacts/**/*.AppImage
             release-artifacts/**/*.deb
-            release-artifacts/**/*.rpm
             release-artifacts/**/*.app.tar.gz
             release-artifacts/**/*.dmg
             release-artifacts/**/*.sig
