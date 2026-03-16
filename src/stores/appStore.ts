@@ -565,14 +565,17 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         githubAssetUrl: options?.githubAssetUrl,
       })
 
-      set({ lastInstallResponse: response })
-
       if (!response.success) {
         if (response.code === 'CANCELED') {
-          set({ cancelingInstallPluginId: null })
+          set({
+            lastInstallResponse: null,
+            cancelingInstallPluginId: null,
+          })
           await get().loadApp()
           return response
         }
+
+        set({ lastInstallResponse: response })
 
         trackEvent(
           'plugin_install_fail',
@@ -611,6 +614,8 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         toast.error(response.message)
         return response
       }
+
+      set({ lastInstallResponse: response })
 
       if (response.installerStarted) {
         toast.success(response.message)

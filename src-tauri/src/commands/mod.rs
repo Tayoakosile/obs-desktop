@@ -1,3 +1,4 @@
+pub mod analytics;
 pub mod detect_obs;
 pub mod extract_archive;
 pub mod install_plugin;

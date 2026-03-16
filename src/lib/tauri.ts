@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 
 import type {
+  AnalyticsCaptureRequest,
   AppUpdateProgressEvent,
   AppUpdateSnapshot,
   AppSettings,
@@ -21,6 +22,9 @@ const INSTALL_PROGRESS_EVENT = 'install-progress'
 const APP_UPDATE_PROGRESS_EVENT = 'app-update-progress'
 
 export const desktopApi = {
+  captureAnalyticsEvent(request: AnalyticsCaptureRequest) {
+    return invoke<void>('capture_analytics_event', { request })
+  },
   bootstrap() {
     return invoke<BootstrapPayload>('bootstrap')
   },

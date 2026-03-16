@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 import packageJson from '../../package.json'
 import { getOrCreateInstallId } from './installId'
+import { desktopApi } from './tauri'
 
 import type { BootstrapPayload, InstalledPluginRecord } from '../types/desktop'
 import type { PluginCatalogEntry } from '../types/plugin'
@@ -107,23 +108,19 @@ async function captureWithFetch(
   eventName: TrackableEventName,
   properties: Record<string, unknown>,
 ) {
-  if (typeof window === 'undefined' || typeof fetch !== 'function') {
+  if (typeof window === 'undefined') {
     return
   }
 
-  const response = await fetch(`${POSTHOG_API_HOST}/capture/`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(buildEventPayload(eventName, properties)),
-    keepalive: true,
-    mode: 'cors',
+  const payload = buildEventPayload(eventName, properties)
+  await desktopApi.captureAnalyticsEvent({
+    apiKey: payload.api_key,
+    apiHost: POSTHOG_API_HOST,
+    eventName: eventName,
+    distinctId: payload.distinct_id,
+    timestamp: payload.timestamp,
+    properties: payload.properties,
   })
-
-  if (!response.ok) {
-    throw new Error(`PostHog capture failed with status ${response.status}`)
-  }
 }
 
 function applyAnalyticsIdentity(userAccountId?: string | null) {

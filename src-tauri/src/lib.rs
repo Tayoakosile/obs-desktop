@@ -2,6 +2,7 @@ mod commands;
 mod models;
 mod utils;
 
+use commands::analytics::capture_analytics_event;
 use commands::detect_obs::{
     choose_obs_directory, detect_obs, save_obs_path, validate_obs_path_command,
 };
@@ -120,6 +121,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            capture_analytics_event,
             bootstrap,
             detect_obs,
             choose_obs_directory,

@@ -257,3 +257,12 @@ export interface UninstallResponse {
   removedFiles: number
   removedDirectories: number
 }
+
+export interface AnalyticsCaptureRequest {
+  apiKey: string
+  apiHost: string
+  eventName: string
+  distinctId: string
+  timestamp?: string | null
+  properties: Record<string, unknown>
+}

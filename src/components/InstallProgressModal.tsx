@@ -118,6 +118,7 @@ export function InstallProgressModal({
   const isCanceled = progress.stage === 'canceled'
   const isReview = progress.stage === 'review' || Boolean(lastResponse?.reviewPlan)
   const isManual = progress.stage === 'manual'
+  const isSuccess = progress.stage === 'completed' && !isError && !isCanceled && !isReview && !isManual
   const installerStarted = Boolean(lastResponse?.installerStarted)
   const isActiveInstall =
     !isTerminal &&
@@ -148,7 +149,7 @@ export function InstallProgressModal({
     }
 
     if (isCanceled) {
-      return 'Download canceled'
+      return 'Install canceled'
     }
 
     if (isReview) {
@@ -159,11 +160,11 @@ export function InstallProgressModal({
       return installerStarted ? 'Installer started' : 'Installer downloaded'
     }
 
-    if (isTerminal && isScriptInstall) {
+    if (isSuccess && isScriptInstall) {
       return 'OBS Script Installed'
     }
 
-    if (isTerminal) {
+    if (isSuccess) {
       return 'Installation completed'
     }
 
@@ -197,7 +198,7 @@ export function InstallProgressModal({
           </button>
         </div>
 
-        {isTerminal && !isError && isScriptInstall ? (
+        {isSuccess && isScriptInstall ? (
           <div className="mt-5 space-y-4">
             <div className="flex items-start gap-3 rounded-lg border border-emerald-400/20 bg-emerald-500/10 p-4">
               <CheckCircle2 className="mt-0.5 size-5 text-emerald-300" />
@@ -255,9 +256,9 @@ export function InstallProgressModal({
                 <div className="flex items-start gap-3 rounded-lg border border-amber-400/20 bg-amber-500/10 p-4">
                   <AlertCircle className="mt-0.5 size-5 text-amber-300" />
                   <div>
-                    <p className="text-sm font-semibold text-white">Download canceled</p>
+                    <p className="text-sm font-semibold text-white">Install canceled</p>
                     <p className="mt-1 text-sm leading-7 text-slate-300">
-                      {progress.detail ?? progress.message}
+                      Download canceled. No files were installed.
                     </p>
                   </div>
                 </div>
@@ -335,7 +336,7 @@ export function InstallProgressModal({
                   </Button>
                 </div>
               </div>
-            ) : isTerminal ? (
+            ) : isSuccess ? (
               <div className="space-y-4">
                 <div className="flex items-start gap-3 rounded-lg border border-emerald-400/20 bg-emerald-500/10 p-4">
                   <CheckCircle2 className="mt-0.5 size-5 text-emerald-300" />
