@@ -201,12 +201,12 @@ This repository includes a GitHub Actions workflow at `.github/workflows/release
 - Every push to GitHub now triggers the workflow automatically.
 - Push builds run on GitHub-hosted `windows-latest`, `ubuntu-latest`, and `macos-latest` runners.
 - Push builds upload the compiled desktop bundles as GitHub Actions run artifacts.
-- Publishing a GitHub Release triggers the release workflow automatically.
+- Pushing a version tag like `v0.2.0` triggers a release build and creates or updates the GitHub Release automatically.
 - `workflow_dispatch` is also enabled so you can test the workflow manually from the Actions tab.
 
 ### What the workflow does
 
-For every push and published release, GitHub Actions:
+For every push and version-tag push, GitHub Actions:
 
 - runs on GitHub-hosted `windows-latest`, `ubuntu-latest`, and `macos-latest` runners
 - installs Node.js, Rust, and the required Tauri build dependencies
@@ -218,8 +218,69 @@ For every push and published release, GitHub Actions:
 - verifies that the GitHub release tag matches the app version
 - builds Tauri release bundles
 - generates updater signatures because `bundle.createUpdaterArtifacts` is enabled
-- uploads installer artifacts and `.sig` files to the workflow run on push builds
-- uploads both installer artifacts and `.sig` files back to the GitHub Release page for published releases
+- uploads installer artifacts and `.sig` files to the workflow run on normal branch pushes
+- uploads both installer artifacts and `.sig` files to a GitHub Release automatically when the pushed ref is a version tag like `v0.2.0`
+
+### Simple version bump flow
+
+If you want the app to bump version numbers, commit, push, and let GitHub Actions compile automatically on push, use:
+
+```bash
+npm run release:patch
+```
+
+or:
+
+```bash
+npm run release:minor
+npm run release:major
+```
+
+Those commands will:
+
+- bump `package.json` and `package-lock.json`
+- sync `src-tauri/tauri.conf.json`
+- sync `src-tauri/Cargo.toml`
+- create a git commit named like `v0.2.0`
+- push the current branch to `origin`
+
+After the push reaches GitHub, Actions will automatically build the desktop apps and upload the bundles to the workflow run artifacts.
+
+You can also run the version sync alone:
+
+```bash
+npm run sync:version
+```
+
+### Tagged release flow
+
+If you also want GitHub to create or update a Release page and attach the built installers automatically, use:
+
+Run:
+
+```bash
+npm run release -- 0.2.0
+```
+
+That command will:
+
+- sync the app version across `package.json`, `package-lock.json`, `src-tauri/tauri.conf.json`, and `src-tauri/Cargo.toml`
+- verify the release metadata
+- create a git commit named `release: v0.2.0`
+- create an annotated git tag `v0.2.0`
+- push the branch and tag to `origin`
+
+After the tag reaches GitHub, Actions will:
+
+- build Windows, Linux, and macOS bundles
+- create or update a GitHub Release named `Release v0.2.0`
+- attach the generated installers and signature files automatically
+
+If you want to preview the steps without changing anything, run:
+
+```bash
+npm run release:dry -- 0.2.0
+```
 
 ### GitHub Actions variables and secrets
 
@@ -264,7 +325,7 @@ This implementation intentionally ignores source-code archives when installable 
 ### Push builds vs release builds
 
 - On a normal `git push`, the workflow compiles Windows, Linux, and macOS bundles and stores them in the GitHub Actions run under `Artifacts`.
-- On a published GitHub Release, the same workflow compiles those bundles again and attaches them directly to the release page.
+- On a pushed version tag like `v0.2.0`, the workflow compiles those bundles and attaches them directly to the GitHub Release page.
 - If signing secrets are not configured yet, the workflow can still be used for compile verification, but updater signing-dependent release distribution may need those secrets before you ship to users.
 
 ## Versioning
