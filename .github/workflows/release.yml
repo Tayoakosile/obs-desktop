@@ -28,18 +28,27 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            label: Windows
+            label: Windows x64
             platform: windows
+            artifact_suffix: windows-x64
             bundles: nsis,msi
             default_update_bundle: nsis
           - os: ubuntu-latest
-            label: Linux
+            label: Linux x64
             platform: linux
+            artifact_suffix: linux-x64
             bundles: appimage,deb
             default_update_bundle: appimage
+          - os: ubuntu-24.04-arm
+            label: Linux ARM64
+            platform: linux
+            artifact_suffix: linux-arm64
+            bundles: deb
+            default_update_bundle: deb
           - os: macos-latest
             label: macOS
             platform: macos
+            artifact_suffix: macos
             bundles: dmg
             default_update_bundle: app
 
@@ -98,7 +107,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: obs-plugin-installer-${{ matrix.platform }}-${{ github.sha }}
+          name: obs-plugin-installer-${{ matrix.artifact_suffix }}-${{ github.sha }}
           if-no-files-found: warn
           path: |
             src-tauri/target/release/bundle/**/*.exe
