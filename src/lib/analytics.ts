@@ -81,6 +81,51 @@ function scheduleAnalyticsTask(task: () => void | Promise<void>) {
   }, 0)
 }
 
+function buildEventPayload(
+  eventName: TrackableEventName,
+  properties: Record<string, unknown>,
+) {
+  const distinctId = activeDistinctId ?? resolveAnalyticsDistinctId()
+
+  return {
+    api_key: POSTHOG_PROJECT_KEY,
+    event: eventName,
+    distinct_id: distinctId,
+    properties: {
+      ...properties,
+      distinct_id: distinctId,
+      app_version: APP_VERSION,
+      platform: inferRuntimePlatform(),
+      environment: ANALYTICS_ENVIRONMENT,
+      install_id: getOrCreateInstallId(),
+    },
+    timestamp: new Date().toISOString(),
+  }
+}
+
+async function captureWithFetch(
+  eventName: TrackableEventName,
+  properties: Record<string, unknown>,
+) {
+  if (typeof window === 'undefined' || typeof fetch !== 'function') {
+    return
+  }
+
+  const response = await fetch(`${POSTHOG_API_HOST}/capture/`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(buildEventPayload(eventName, properties)),
+    keepalive: true,
+    mode: 'cors',
+  })
+
+  if (!response.ok) {
+    throw new Error(`PostHog capture failed with status ${response.status}`)
+  }
+}
+
 function applyAnalyticsIdentity(userAccountId?: string | null) {
   const distinctId = resolveAnalyticsDistinctId(userAccountId)
   const identityType = userAccountId?.trim() ? 'account' : 'install'
@@ -108,6 +153,9 @@ async function initializeAnalytics(userAccountId?: string | null) {
         api_host: POSTHOG_API_HOST,
         capture_pageview: true,
         autocapture: true,
+        persistence: 'localStorage',
+        request_batching: false,
+        api_transport: 'fetch',
       })
       applyAnalyticsIdentity(userAccountId)
     })
@@ -166,7 +214,12 @@ export function trackEvent(
 ) {
   scheduleAnalyticsTask(async () => {
     await initializeAnalytics()
-    posthog.capture(eventName, properties)
+
+    try {
+      await captureWithFetch(eventName, properties)
+    } catch (error) {
+      console.warn('[analytics] capture failed', error)
+    }
   })
 }
 

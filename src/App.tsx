@@ -141,6 +141,7 @@ function App() {
   const [isStartupUpdateCheckComplete, setIsStartupUpdateCheckComplete] = useState(false)
   const [bypassedRequiredUpdateVersion, setBypassedRequiredUpdateVersion] = useState<string | null>(null)
   const startupUpdateCheckStartedRef = useRef(false)
+  const updateCheckInFlightRef = useRef(false)
 
   const themePreference: ThemeMode = bootstrap?.settings.theme ?? 'dark'
   const effectiveTheme =
@@ -219,6 +220,42 @@ function App() {
       setIsStartupUpdateCheckComplete(true)
     })
   }, [bootstrap, checkForAppUpdate])
+
+  useEffect(() => {
+    if (!bootstrap || !isStartupUpdateCheckComplete) {
+      return
+    }
+
+    const runSilentUpdateCheck = () => {
+      if (updateCheckInFlightRef.current) {
+        return
+      }
+
+      updateCheckInFlightRef.current = true
+      void checkForAppUpdate({ silent: true }).finally(() => {
+        updateCheckInFlightRef.current = false
+      })
+    }
+
+    const intervalId = window.setInterval(runSilentUpdateCheck, 5 * 60 * 1000)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        runSilentUpdateCheck()
+      }
+    }
+    const handleFocus = () => {
+      runSilentUpdateCheck()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+
+    return () => {
+      window.clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [bootstrap, checkForAppUpdate, isStartupUpdateCheckComplete])
 
   useEffect(() => {
     if (!bootstrap) {
