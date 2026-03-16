@@ -138,13 +138,16 @@ jobs:
             src-tauri/target/release/bundle/**/*.sig
 
   publish-main-release:
-    name: Publish rolling main release
+    name: Publish main prerelease
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     needs:
       - build-release
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -152,15 +155,20 @@ jobs:
           path: release-artifacts
           merge-multiple: true
 
-      - name: Move rolling release tag
+      - name: Read prerelease metadata
+        id: metadata
         run: |
-          git init
-          git remote add origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
-          git fetch --depth=1 origin "${{ github.ref_name }}"
-          git tag -f main-latest "${{ github.sha }}"
-          git push origin refs/tags/main-latest --force
+          APP_VERSION="$(node -p "require('./package.json').version")"
+          SHORT_SHA="$(printf '%s' "${GITHUB_SHA}" | cut -c1-7)"
+          RELEASE_TAG="main-v${APP_VERSION}-build-${GITHUB_RUN_NUMBER}"
+          RELEASE_NAME="OBS Plugin Installer v${APP_VERSION} build ${GITHUB_RUN_NUMBER}"
 
-      - name: Verify rolling release assets exist
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_name=${RELEASE_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify prerelease assets exist
         run: |
           mapfile -t release_files < <(find release-artifacts -type f \( \
             -name '*.exe' -o \
@@ -180,19 +188,21 @@ jobs:
           printf 'Publishing %s release asset(s):\n' "${#release_files[@]}"
           printf ' - %s\n' "${release_files[@]}"
 
-      - name: Publish rolling release
+      - name: Publish prerelease
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: main-latest
+          tag_name: ${{ steps.metadata.outputs.release_tag }}
           target_commitish: ${{ github.sha }}
-          name: OBS Plugin Installer latest (main)
+          name: ${{ steps.metadata.outputs.release_name }}
           prerelease: true
           make_latest: false
           generate_release_notes: false
           body: |
-            Automated rolling desktop build from `main`.
+            Automated desktop prerelease from `main`.
 
+            Version: `${{ steps.metadata.outputs.app_version }}`
             Commit: `${{ github.sha }}`
+            Short SHA: `${{ steps.metadata.outputs.short_sha }}`
             Branch: `${{ github.ref_name }}`
           fail_on_unmatched_files: false
           files: |
