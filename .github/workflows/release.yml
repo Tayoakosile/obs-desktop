@@ -49,7 +49,7 @@ jobs:
             label: macOS
             platform: macos
             artifact_suffix: macos
-            bundles: dmg
+            bundles: app,dmg
             default_update_bundle: app
 
     steps:
