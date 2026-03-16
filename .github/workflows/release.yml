@@ -2,9 +2,10 @@ name: Desktop Builds
 
 run-name: >-
   ${{
-    startsWith(github.ref, 'refs/tags/') && format('Release {0}', github.ref_name)
-    || github.event_name == 'workflow_dispatch' && 'Manual desktop build'
-    || format('Desktop build for {0}', github.ref_name)
+    startsWith(github.ref, 'refs/tags/') && format('OBS Plugin Installer {0}', github.ref_name)
+    || github.event_name == 'workflow_dispatch' && 'OBS Plugin Installer manual build'
+    || startsWith(github.event.head_commit.message, 'v') && format('OBS Plugin Installer {0}', github.event.head_commit.message)
+    || format('OBS Plugin Installer build ({0})', github.ref_name)
   }}
 
 on:
@@ -114,7 +115,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: ${{ format('Release {0}', github.ref_name) }}
+          name: ${{ format('OBS Plugin Installer {0}', github.ref_name) }}
           generate_release_notes: true
           fail_on_unmatched_files: false
           files: |
