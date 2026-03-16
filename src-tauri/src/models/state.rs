@@ -89,6 +89,14 @@ pub enum InstallKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+pub enum InstallMethod {
+    Managed,
+    Installer,
+    External,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
 pub enum InstallVerificationStatus {
     Verified,
     Unverified,
@@ -177,6 +185,8 @@ pub struct InstalledPluginRecord {
     pub install_kind: InstallKind,
     pub package_id: Option<String>,
     pub download_path: Option<String>,
+    #[serde(default)]
+    pub install_method: Option<InstallMethod>,
     #[serde(default)]
     pub backup: Option<InstallBackupRecord>,
     #[serde(default)]

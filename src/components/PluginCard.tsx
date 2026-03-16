@@ -7,6 +7,8 @@ import {
   formatSupportedPlatforms,
   getCatalogPluginState,
   getPluginCompatibility,
+  getInstallMethod,
+  getInstallOwnershipLabel,
   getPluginTypeLabel,
   getRecommendedPackage,
   hasGitHubReleaseSource,
@@ -37,6 +39,8 @@ interface PluginCardProps {
 
 function ActionControl({
   compatibilityLabel,
+  installOwnershipLabel,
+  isInstallerBased,
   isInstalledExternal,
   isInstalledManaged,
   isUnavailable,
@@ -45,6 +49,8 @@ function ActionControl({
   viewMode,
 }: {
   compatibilityLabel: string
+  installOwnershipLabel: string
+  isInstallerBased: boolean
   isInstalledExternal: boolean
   isInstalledManaged: boolean
   isUnavailable: boolean
@@ -61,7 +67,7 @@ function ActionControl({
         )}
         tone="success"
       >
-        Installed
+        {isInstallerBased ? 'Installer used' : 'Installed'}
       </Badge>
     )
   }
@@ -75,7 +81,7 @@ function ActionControl({
         )}
         tone="warning"
       >
-        Installed externally
+        {installOwnershipLabel}
       </Badge>
     )
   }
@@ -128,8 +134,10 @@ export function PluginCard({
   const compatibility = getPluginCompatibility(plugin, currentPlatform)
   const recommendedPackage = getRecommendedPackage(plugin, currentPlatform)
   const pluginTypeLabel = getPluginTypeLabel(plugin, installedPlugin)
+  const installMethod = getInstallMethod(installedPlugin)
   const isUnavailable = !compatibility.canInstall
-  const isInstalledManaged = pluginState === 'installed'
+  const isInstalledManaged = pluginState === 'installed' && installMethod !== 'external'
+  const isInstallerBased = installMethod === 'installer'
   const isInstalledExternal = pluginState === 'installed-externally'
   const isUpdateAvailable = pluginState === 'update-available'
   const isAttachPending =
@@ -232,15 +240,19 @@ export function PluginCard({
           <span className="truncate text-[12px] text-slate-500">
             {isInstalledExternal
               ? 'Detected in OBS folders'
+              : isInstallerBased
+                ? 'Installed using plugin installer'
               : isUpdateAvailable
                 ? 'Update ready'
                 : isInstalledManaged
-                  ? 'Managed by this app'
+                  ? getInstallOwnershipLabel(installedPlugin)
                   : compatibility.label}
           </span>
           <div className="w-[132px] shrink-0">
             <ActionControl
               compatibilityLabel={compatibility.disabledActionLabel || 'Unsupported'}
+              installOwnershipLabel={getInstallOwnershipLabel(installedPlugin)}
+              isInstallerBased={isInstallerBased}
               isInstalledExternal={isInstalledExternal}
               isInstalledManaged={isInstalledManaged}
               isUnavailable={isUnavailable}
@@ -294,12 +306,15 @@ export function PluginCard({
             </Badge>
           ))}
           {isAttachPending ? <Badge tone="warning">Needs OBS attach</Badge> : null}
+          {isInstallerBased ? <Badge tone="neutral">Plugin installer</Badge> : null}
         </div>
       </div>
 
       <div className="flex min-w-[168px] justify-end">
         <ActionControl
           compatibilityLabel={compatibility.disabledActionLabel || 'Unsupported'}
+          installOwnershipLabel={getInstallOwnershipLabel(installedPlugin)}
+          isInstallerBased={isInstallerBased}
           isInstalledExternal={isInstalledExternal}
           isInstalledManaged={isInstalledManaged}
           isUnavailable={isUnavailable}

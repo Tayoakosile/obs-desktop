@@ -21,6 +21,8 @@ import {
   getCatalogPluginState,
   getGitHubReleasesUrl,
   getGitHubRepoUrl,
+  getInstallMethod,
+  getInstallOwnershipLabel,
   getPlatformPackages,
   getPluginCompatibility,
   getPluginTypeLabel,
@@ -174,8 +176,10 @@ export function PluginDetailsPage() {
     !activePlugin.installStrategy &&
     hasGitHubReleaseSource(activePlugin)
   const canInstall = compatibility.canInstall && !releaseCheckPending
-  const isInstalledManaged = pluginState === 'installed'
+  const installMethod = getInstallMethod(installedPlugin)
+  const isInstalledManaged = pluginState === 'installed' && installMethod !== 'external'
   const isInstalledExternal = pluginState === 'installed-externally'
+  const isInstallerInstall = installMethod === 'installer'
   const isUpdateAvailable = pluginState === 'update-available'
   const sourcePage =
     activePlugin.sourceUrl ??
@@ -234,7 +238,11 @@ export function PluginDetailsPage() {
                         Verified
                       </Badge>
                     ) : null}
-                    {isInstalledManaged ? <Badge tone="success">Installed (managed)</Badge> : null}
+                    {isInstalledManaged ? (
+                      <Badge tone={isInstallerInstall ? 'neutral' : 'success'}>
+                        {getInstallOwnershipLabel(installedPlugin)}
+                      </Badge>
+                    ) : null}
                     {isInstalledExternal ? (
                       <Badge tone="warning">Installed externally</Badge>
                     ) : null}
@@ -262,8 +270,11 @@ export function PluginDetailsPage() {
                         : 'Adopt installation'}
                     </Button>
                   ) : isInstalledManaged ? (
-                    <Badge className="px-3 py-2 text-[12px]" tone="success">
-                      Installed (managed)
+                    <Badge
+                      className="px-3 py-2 text-[12px]"
+                      tone={isInstallerInstall ? 'neutral' : 'success'}
+                    >
+                      {getInstallOwnershipLabel(installedPlugin)}
                     </Badge>
                   ) : canInstall ? (
                     <Button onClick={handleInstall}>
@@ -373,7 +384,7 @@ export function PluginDetailsPage() {
                 <div className="flex items-center justify-between gap-4">
                   <dt className="text-slate-500">Install status</dt>
                   <dd className="text-right text-slate-300">
-                    {installedPlugin.managed ? 'Installed (managed)' : 'Installed externally'}
+                    {getInstallOwnershipLabel(installedPlugin)}
                   </dd>
                 </div>
               ) : null}
@@ -405,7 +416,7 @@ export function PluginDetailsPage() {
                 <dt className="text-slate-500">Updated</dt>
                 <dd className="text-right text-slate-300">{formatDisplayDate(plugin.lastUpdated)}</dd>
               </div>
-              {installedPlugin?.managed ? (
+              {installMethod === 'managed' && installedPlugin ? (
                 <div className="flex items-center justify-between gap-4">
                   <dt className="text-slate-500">Installed</dt>
                   <dd className="text-right text-slate-300">

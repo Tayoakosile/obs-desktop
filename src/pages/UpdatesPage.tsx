@@ -2,6 +2,7 @@ import { ArrowRight, RefreshCw } from 'lucide-react'
 
 import { Button } from '../components/ui/Button'
 import {
+  getInstallMethod,
   getPluginCompatibility,
   getRecommendedPackage,
   hasGitHubReleaseSource,
@@ -20,7 +21,11 @@ export function UpdatesPage() {
 
   const updates = (bootstrap?.plugins ?? []).filter((plugin) => {
     const installed = installedByPluginId.get(plugin.id)
-    if (!installed || !installed.managed || installed.installKind !== 'full') {
+    if (
+      !installed ||
+      getInstallMethod(installed) !== 'managed' ||
+      installed.installKind !== 'full'
+    ) {
       return false
     }
 

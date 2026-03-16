@@ -30,7 +30,7 @@ use crate::models::plugin::{
 use crate::models::state::{
     CancelInstallResponse, GitHubRejectedAsset, GitHubReleaseAssetOption, GitHubReleaseInfo,
     InstallBackupRecord, InstallHistoryAction, InstallHistoryEntry, InstallKind,
-    InstallProgressEvent, InstallRequest, InstallResponse, InstallReviewPlan,
+    InstallMethod, InstallProgressEvent, InstallRequest, InstallResponse, InstallReviewPlan,
     InstallVerificationStatus, InstalledPluginRecord, InstalledPluginSourceType,
     InstalledPluginStatus,
 };
@@ -2004,7 +2004,7 @@ fn finalize_external_download(
         plugin_id: plugin.id.clone(),
         installed_version: plugin.version.clone(),
         installed_at: Utc::now().to_rfc3339(),
-        managed: true,
+        managed: false,
         install_location: download_path
             .parent()
             .unwrap_or(download_path)
@@ -2016,6 +2016,7 @@ fn finalize_external_download(
         install_kind: InstallKind::Guided,
         package_id,
         download_path: Some(download_path.display().to_string()),
+        install_method: Some(InstallMethod::Installer),
         backup: None,
         verification_status: Some(InstallVerificationStatus::Unverified),
         last_verified_at: Some(Utc::now().to_rfc3339()),
@@ -2028,7 +2029,7 @@ fn finalize_external_download(
             plugin_name: plugin.name.clone(),
             version: Some(plugin.version.clone()),
             action: infer_install_history_action(previous_record.as_ref(), &plugin.version),
-            managed: true,
+            managed: false,
             install_location: Some(
                 download_path
                     .parent()
@@ -2312,6 +2313,7 @@ fn finalize_obs_archive_install(
         install_kind: InstallKind::Full,
         package_id,
         download_path: None,
+        install_method: Some(InstallMethod::Managed),
         backup: build_install_backup_record(&copy_outcome),
         verification_status: Some(InstallVerificationStatus::Verified),
         last_verified_at: Some(Utc::now().to_rfc3339()),
@@ -2453,6 +2455,7 @@ fn finalize_standalone_operations_install(
         install_kind: InstallKind::Full,
         package_id,
         download_path: Some(install_root.display().to_string()),
+        install_method: Some(InstallMethod::Managed),
         backup: build_install_backup_record(&copy_outcome),
         verification_status: Some(InstallVerificationStatus::Verified),
         last_verified_at: Some(Utc::now().to_rfc3339()),
@@ -2597,6 +2600,7 @@ fn install_script_file(
         install_kind: InstallKind::Full,
         package_id: None,
         download_path: Some(target_path.display().to_string()),
+        install_method: Some(InstallMethod::Managed),
         backup: build_install_backup_record(&copy_outcome),
         verification_status: Some(InstallVerificationStatus::Verified),
         last_verified_at: Some(Utc::now().to_rfc3339()),

@@ -12,8 +12,8 @@ use crate::commands::validate_obs::validate_obs_path;
 use crate::models::plugin::{PluginCatalogEntry, SupportedPlatform};
 use crate::models::state::{
     BootstrapPayload, InstallHistoryAction, InstallHistoryEntry, InstallKind,
-    InstallVerificationStatus, InstalledPluginRecord, InstalledPluginSourceType,
-    InstalledPluginStatus, PersistedState,
+    InstallMethod, InstallVerificationStatus, InstalledPluginRecord,
+    InstalledPluginSourceType, InstalledPluginStatus, PersistedState,
 };
 use crate::utils::catalog::load_plugin_catalog;
 
@@ -376,6 +376,7 @@ fn detect_external_record(
         install_kind: InstallKind::Full,
         package_id: None,
         download_path,
+        install_method: Some(InstallMethod::External),
         backup: None,
         verification_status: Some(InstallVerificationStatus::Verified),
         last_verified_at: Some(Utc::now().to_rfc3339()),
@@ -548,6 +549,7 @@ pub fn adopt_installation(app: AppHandle, plugin_id: String) -> Result<Installed
     let mut adopted = external;
     adopted.managed = true;
     adopted.installed_at = Utc::now().to_rfc3339();
+    adopted.install_method = Some(InstallMethod::Managed);
 
     push_install_history(
         &mut state,

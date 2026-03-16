@@ -1,7 +1,7 @@
 import { ArrowLeft, Search, Settings } from 'lucide-react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
-import { isUpdateAvailable } from '../../lib/utils'
+import { getInstallMethod, isUpdateAvailable } from '../../lib/utils'
 import { useAppStore } from '../../stores/appStore'
 import { InstallProgressModal } from '../InstallProgressModal'
 import { Button } from '../ui/Button'
@@ -39,7 +39,11 @@ export function AppShell() {
   )
   const updatesReady = (bootstrap?.plugins ?? []).filter((plugin) => {
     const installed = installedByPluginId.get(plugin.id)
-    return Boolean(installed?.managed && isUpdateAvailable(installed.installedVersion, plugin.version))
+    return Boolean(
+      installed &&
+        getInstallMethod(installed) === 'managed' &&
+        isUpdateAvailable(installed.installedVersion, plugin.version),
+    )
   }).length
 
   function handleBack() {

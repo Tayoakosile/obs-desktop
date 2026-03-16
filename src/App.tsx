@@ -9,7 +9,7 @@ import { RequiredUpdateScreen } from './components/RequiredUpdateScreen'
 import { SetupWizard } from './components/SetupWizard'
 import { AppShell } from './components/layout/AppShell'
 import { Button } from './components/ui/Button'
-import { getAnalyticsContext, trackEvent } from './lib/analytics'
+import { getAnalyticsContext, trackAppOpenOnce } from './lib/analytics'
 import { desktopApi } from './lib/tauri'
 import { DiscoverPage } from './pages/DiscoverPage'
 import { InstalledPage } from './pages/InstalledPage'
@@ -141,7 +141,6 @@ function App() {
   const [isStartupUpdateCheckComplete, setIsStartupUpdateCheckComplete] = useState(false)
   const [bypassedRequiredUpdateVersion, setBypassedRequiredUpdateVersion] = useState<string | null>(null)
   const startupUpdateCheckStartedRef = useRef(false)
-  const appOpenTrackedRef = useRef(false)
 
   const themePreference: ThemeMode = bootstrap?.settings.theme ?? 'dark'
   const effectiveTheme =
@@ -222,12 +221,11 @@ function App() {
   }, [bootstrap, checkForAppUpdate])
 
   useEffect(() => {
-    if (!bootstrap || appOpenTrackedRef.current) {
+    if (!bootstrap) {
       return
     }
 
-    appOpenTrackedRef.current = true
-    trackEvent('app_open', {
+    trackAppOpenOnce({
       ...getAnalyticsContext(bootstrap),
       setupCompleted: bootstrap.settings.setupCompleted,
       installedPluginCount: bootstrap.installedPlugins.length,

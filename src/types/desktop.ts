@@ -72,6 +72,7 @@ export type InstalledPluginSourceType =
   | 'manual'
 
 export type InstallKind = 'full' | 'guided'
+export type InstallMethod = 'managed' | 'installer' | 'external'
 
 export type InstallHistoryAction =
   | 'install'
@@ -133,6 +134,7 @@ export interface InstalledPluginRecord {
   installKind: InstallKind
   packageId?: string | null
   downloadPath?: string | null
+  installMethod?: InstallMethod | null
   backup?: InstallBackupRecord | null
   verificationStatus?: InstallVerificationStatus | null
   lastVerifiedAt?: string | null

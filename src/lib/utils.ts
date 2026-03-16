@@ -1,7 +1,11 @@
 import clsx from 'clsx'
 import semver from 'semver'
 
-import type { GitHubReleaseInfo, InstalledPluginRecord } from '../types/desktop'
+import type {
+  GitHubReleaseInfo,
+  InstallMethod,
+  InstalledPluginRecord,
+} from '../types/desktop'
 import type {
   PluginCatalogEntry,
   PluginPackage,
@@ -207,9 +211,54 @@ export function isScriptPlugin(
 }
 
 export function isExternallyInstalled(
-  installedPlugin?: Pick<InstalledPluginRecord, 'managed'> | null,
+  installedPlugin?:
+    | Pick<InstalledPluginRecord, 'managed' | 'sourceType' | 'installMethod'>
+    | null,
 ) {
-  return Boolean(installedPlugin && !installedPlugin.managed)
+  return getInstallMethod(installedPlugin) === 'external'
+}
+
+export function getInstallMethod(
+  installedPlugin?:
+    | Pick<InstalledPluginRecord, 'managed' | 'sourceType' | 'installMethod'>
+    | null,
+): InstallMethod | null {
+  if (!installedPlugin) {
+    return null
+  }
+
+  if (installedPlugin.installMethod) {
+    return installedPlugin.installMethod
+  }
+
+  if (installedPlugin.sourceType === 'external-installer') {
+    return 'installer'
+  }
+
+  if (!installedPlugin.managed) {
+    return 'external'
+  }
+
+  return 'managed'
+}
+
+export function getInstallOwnershipLabel(
+  installedPlugin?:
+    | Pick<InstalledPluginRecord, 'managed' | 'sourceType' | 'installMethod'>
+    | null,
+) {
+  const installMethod = getInstallMethod(installedPlugin)
+
+  switch (installMethod) {
+    case 'managed':
+      return 'Installed by OBS Plugin Installer'
+    case 'installer':
+      return 'Installed using plugin installer'
+    case 'external':
+      return 'Installed externally'
+    default:
+      return 'Not installed'
+  }
 }
 
 export function getCatalogPluginState(

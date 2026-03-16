@@ -8,6 +8,8 @@ import { CopyPathField } from '../components/ui/CopyPathField'
 import {
   formatDisplayDate,
   getPluginCompatibility,
+  getInstallMethod,
+  getInstallOwnershipLabel,
   getRecommendedPackage,
   hasGitHubReleaseSource,
   isScriptPlugin,
@@ -118,6 +120,9 @@ export function InstalledPage() {
                     const compatibility = getPluginCompatibility(plugin, currentPlatform)
                     const recommendedPackage = getRecommendedPackage(plugin, currentPlatform)
                     const isManagedInstall = installedPlugin.managed
+                    const installMethod = getInstallMethod(installedPlugin)
+                    const isInstallerInstall = installMethod === 'installer'
+                    const isExternalInstall = installMethod === 'external'
                     const isScriptAttachPending =
                       installedPlugin.status === 'manual-step' &&
                       installedPlugin.sourceType === 'script'
@@ -157,9 +162,9 @@ export function InstalledPage() {
                             <p className="text-sm text-slate-400">{plugin.tagline}</p>
                             <p className="text-xs text-slate-500">{compatibility.label}</p>
                             <p className="text-xs text-slate-500">
-                              {isManagedInstall
-                                ? `Installed ${formatDisplayDate(installedPlugin.installedAt)}`
-                                : 'Detected in OBS folders on this device'}
+                              {isExternalInstall
+                                ? 'Detected in OBS folders on this device'
+                                : `${getInstallOwnershipLabel(installedPlugin)} • ${formatDisplayDate(installedPlugin.installedAt)}`}
                             </p>
                             {installedPlugin.lastVerifiedAt ? (
                               <p className="text-xs text-slate-500">
@@ -185,7 +190,7 @@ export function InstalledPage() {
                         </td>
                         <td className="px-6 py-5 text-sm text-slate-300">v{plugin.version}</td>
                         <td className="px-6 py-5">
-                          {!isManagedInstall ? (
+                          {isExternalInstall ? (
                             <Badge tone="warning">Installed externally</Badge>
                           ) : installedPlugin.status === 'missing-files' ? (
                             <Badge tone="danger">Files missing</Badge>
@@ -195,10 +200,12 @@ export function InstalledPage() {
                             <Badge tone="warning">Installer pending</Badge>
                           ) : hasUpdate ? (
                             <Badge tone="warning">Update available</Badge>
+                          ) : isInstallerInstall ? (
+                            <Badge tone="neutral">Installed using plugin installer</Badge>
                           ) : isStandaloneTool ? (
                             <Badge tone="neutral">Tool installed</Badge>
                           ) : (
-                            <Badge tone="success">Installed (managed)</Badge>
+                            <Badge tone="success">Installed by OBS Plugin Installer</Badge>
                           )}
                         </td>
                         <td className="px-6 py-5">
@@ -215,7 +222,7 @@ export function InstalledPage() {
                               <ExternalLink className="size-4" />
                               Source
                             </Button>
-                            {!isManagedInstall ? (
+                            {isExternalInstall ? (
                               <Button
                                 disabled={adoptingPluginId === plugin.id}
                                 size="sm"
@@ -268,7 +275,7 @@ export function InstalledPage() {
                               title={
                                 canDelete
                                   ? 'Delete this installed plugin'
-                                  : 'Only managed installs can be removed automatically.'
+                                  : 'Only installs fully managed by OBS Plugin Installer can be removed automatically.'
                               }
                               variant="ghost"
                               onClick={() =>
