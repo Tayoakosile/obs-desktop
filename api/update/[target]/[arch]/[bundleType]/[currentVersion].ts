@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 
+import { getPostHogClient } from '../../../../_lib/posthog'
 import { resolveUpdateCatalog, sendError } from '../../../../_lib/update-server'
 
 function readPathParam(value: string | string[] | undefined) {
@@ -25,6 +26,8 @@ export default async function handler(request: VercelRequest, response: VercelRe
     return sendError(response, 400, 'Missing updater route parameters.')
   }
 
+  const posthog = getPostHogClient()
+
   try {
     const payload = await resolveUpdateCatalog({
       request,
@@ -34,6 +37,21 @@ export default async function handler(request: VercelRequest, response: VercelRe
       currentVersion,
       channel,
     })
+
+    posthog.capture({
+      distinctId: `${target}-${arch}`,
+      event: 'update check',
+      properties: {
+        target,
+        arch,
+        bundleType,
+        currentVersion,
+        channel: payload.channel,
+        status: payload.status ?? 'update-available',
+        latestVersion: payload.latestVersion,
+      },
+    })
+    await posthog.shutdown()
 
     if (payload.status === 'no-update') {
       response.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30')
@@ -72,6 +90,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
       channel: payload.channel,
     })
   } catch (error) {
+    await posthog.shutdown()
     const message = error instanceof Error ? error.message : 'Could not resolve the updater manifest.'
     console.error('[update-api] dynamic updater route failed', message)
     return sendError(response, 500, message)

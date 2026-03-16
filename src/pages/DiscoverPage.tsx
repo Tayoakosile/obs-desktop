@@ -1,13 +1,15 @@
-import { useDeferredValue } from 'react'
+import { useDeferredValue, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { PluginCard } from '../components/PluginCard'
 import { Badge } from '../components/ui/Badge'
+import { getAnalyticsContext, trackEvent } from '../lib/analytics'
 import { getCatalogPluginState, getPluginCompatibility } from '../lib/utils'
 import { useAppStore } from '../stores/appStore'
 
 export function DiscoverPage() {
   const navigate = useNavigate()
+  const trackedSearchRef = useRef<string | null>(null)
   const bootstrap = useAppStore((state) => state.bootstrap)
   const currentPlatform = bootstrap?.currentPlatform ?? 'windows'
   const searchQuery = useAppStore((state) => state.searchQuery)
@@ -115,6 +117,26 @@ export function DiscoverPage() {
 
   const compatibleCount = categoryCounts.get('Compatible') ?? 0
   const catalogCount = bootstrap?.plugins.length ?? 0
+
+  useEffect(() => {
+    if (!bootstrap || deferredSearch.length === 0) {
+      return
+    }
+
+    const signature = `${selectedCategory}:${deferredSearch}:${filteredPlugins.length}`
+    if (trackedSearchRef.current === signature) {
+      return
+    }
+    trackedSearchRef.current = signature
+
+    trackEvent('plugin_search', {
+      ...getAnalyticsContext(bootstrap),
+      query: deferredSearch,
+      queryLength: deferredSearch.length,
+      selectedCategory,
+      resultCount: filteredPlugins.length,
+    })
+  }, [bootstrap, deferredSearch, filteredPlugins.length, selectedCategory])
 
   return (
     <div className="space-y-6">

@@ -144,6 +144,15 @@ export function InstalledPage() {
                               {isStandaloneTool ? (
                                 <Badge tone="neutral">Standalone Tool</Badge>
                               ) : null}
+                              {installedPlugin.verificationStatus === 'verified' ? (
+                                <Badge tone="success">Verified files</Badge>
+                              ) : null}
+                              {installedPlugin.verificationStatus === 'missing-files' ? (
+                                <Badge tone="danger">Verification failed</Badge>
+                              ) : null}
+                              {installedPlugin.backup ? (
+                                <Badge tone="neutral">Rollback snapshot</Badge>
+                              ) : null}
                             </div>
                             <p className="text-sm text-slate-400">{plugin.tagline}</p>
                             <p className="text-xs text-slate-500">{compatibility.label}</p>
@@ -152,6 +161,11 @@ export function InstalledPage() {
                                 ? `Installed ${formatDisplayDate(installedPlugin.installedAt)}`
                                 : 'Detected in OBS folders on this device'}
                             </p>
+                            {installedPlugin.lastVerifiedAt ? (
+                              <p className="text-xs text-slate-500">
+                                Last verified {formatDisplayDate(installedPlugin.lastVerifiedAt)}
+                              </p>
+                            ) : null}
                             {isScriptEntry && installedPlugin.downloadPath ? (
                               <CopyPathField
                                 buttonClassName="h-7 w-7"

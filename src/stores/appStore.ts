@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { coerce, lt } from 'semver'
 import { toast } from 'sonner'
 
+import { getAnalyticsContext, getPluginAnalyticsProperties, trackEvent } from '../lib/analytics'
 import { getErrorMessage } from '../lib/errors'
 import { desktopApi } from '../lib/tauri'
 import type {
@@ -205,6 +206,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           ? null
           : state.dismissedAppUpdateVersion,
       }))
+      trackEvent('update_check', {
+        ...getAnalyticsContext(get().bootstrap),
+        status: nextStatus,
+        latestVersion: snapshot.latestVersion ?? null,
+        minimumSupportedVersion: snapshot.minimumSupportedVersion ?? null,
+        updateChannel: snapshot.updateChannel,
+      })
 
       if (!options?.silent) {
         if (nextStatus === 'no-update') {
@@ -246,6 +254,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         appUpdateProgress: null,
         isCheckingAppUpdate: false,
       }))
+      trackEvent('update_check', {
+        ...getAnalyticsContext(get().bootstrap),
+        status: 'failed',
+        error: message,
+      })
 
       if (!options?.silent) {
         toast.error(message)
@@ -274,6 +287,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
         appUpdateStatus: nextStatus,
         appUpdateProgress: null,
       })
+      trackEvent('update_success', {
+        ...getAnalyticsContext(get().bootstrap),
+        phase: 'download',
+        status: nextStatus,
+        latestVersion: snapshot.latestVersion ?? null,
+        updateChannel: snapshot.updateChannel,
+      })
       return snapshot
     } catch (error) {
       const message = getErrorMessage(error, 'Could not download the app update.')
@@ -295,6 +315,11 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
 
     try {
       await desktopApi.installAppUpdate()
+      trackEvent('update_success', {
+        ...getAnalyticsContext(get().bootstrap),
+        phase: 'install',
+        latestVersion: get().appUpdate?.latestVersion ?? null,
+      })
     } catch (error) {
       const message = getErrorMessage(error, 'Could not finish installing the app update.')
       set((state) => ({
@@ -502,6 +527,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
   },
 
   async installPlugin(pluginId, options) {
+    const bootstrap = get().bootstrap
+    const plugin = bootstrap?.plugins.find((entry) => entry.id === pluginId)
+    const existingInstall = bootstrap?.installedPlugins.find((entry) => entry.pluginId === pluginId)
+
     set({
       installProgress: {
         pluginId,
@@ -513,6 +542,19 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       lastInstallResponse: null,
       cancelingInstallPluginId: null,
     })
+    trackEvent(
+      'plugin_install_start',
+      getPluginAnalyticsProperties(plugin, bootstrap, existingInstall, {
+        overwrite: Boolean(options?.overwrite),
+        packageId: options?.packageId ?? null,
+        githubAssetName: options?.githubAssetName ?? null,
+        installSource: options?.githubAssetName
+          ? 'github-release'
+          : options?.packageId
+            ? 'catalog-package'
+            : 'auto',
+      }),
+    )
 
     try {
       const response = await desktopApi.installPlugin({
@@ -531,6 +573,14 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           await get().loadApp()
           return response
         }
+
+        trackEvent(
+          'plugin_install_fail',
+          getPluginAnalyticsProperties(plugin, bootstrap, existingInstall, {
+            code: response.code ?? 'unknown',
+            message: response.message,
+          }),
+        )
 
         if (response.code === 'MANUAL_ONLY') {
           const plugin = get().bootstrap?.plugins.find((entry) => entry.id === pluginId)
@@ -569,6 +619,15 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
       } else if (response.installedPlugin) {
         toast.success(response.message)
       }
+      trackEvent(
+        'plugin_install_success',
+        getPluginAnalyticsProperties(plugin, bootstrap, response.installedPlugin ?? existingInstall, {
+          installerStarted: Boolean(response.installerStarted),
+          requiresRestart: response.requiresRestart,
+          installKind: response.installedPlugin?.installKind ?? null,
+          sourceType: response.installedPlugin?.sourceType ?? null,
+        }),
+      )
 
       await get().loadApp()
       set({ cancelingInstallPluginId: null })
@@ -587,6 +646,13 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
           terminal: true,
         },
       })
+      trackEvent(
+        'plugin_install_fail',
+        getPluginAnalyticsProperties(plugin, bootstrap, existingInstall, {
+          code: 'unexpected-error',
+          message,
+        }),
+      )
       toast.error(message)
       return undefined
     }

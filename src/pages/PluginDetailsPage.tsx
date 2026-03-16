@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowUpCircle,
   ChevronDown,
@@ -11,6 +11,7 @@ import { useParams } from 'react-router-dom'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { CopyPathField } from '../components/ui/CopyPathField'
+import { getPluginAnalyticsProperties, trackEvent } from '../lib/analytics'
 import { getErrorMessage } from '../lib/errors'
 import { PluginGlyph } from '../lib/pluginVisuals'
 import { desktopApi } from '../lib/tauri'
@@ -43,6 +44,10 @@ export function PluginDetailsPage() {
   const installedPlugin = bootstrap?.installedPlugins.find(
     (entry) => entry.pluginId === pluginId,
   )
+  const recentHistory = (bootstrap?.installHistory ?? [])
+    .filter((entry) => entry.pluginId === pluginId)
+    .slice(-3)
+    .reverse()
   const recommendedPackage = plugin
     ? getRecommendedPackage(plugin, currentPlatform)
     : undefined
@@ -59,6 +64,7 @@ export function PluginDetailsPage() {
   const [isReleaseLoading, setIsReleaseLoading] = useState(false)
   const [showAdvancedAssets, setShowAdvancedAssets] = useState(false)
   const [selectedGitHubAssetName, setSelectedGitHubAssetName] = useState<string | null>(null)
+  const trackedPluginViewRef = useRef<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -100,6 +106,41 @@ export function PluginDetailsPage() {
     }
   }, [plugin])
 
+  const pluginState = plugin ? getCatalogPluginState(plugin, installedPlugin) : 'install'
+  const compatibility = plugin
+    ? getPluginCompatibility(plugin, currentPlatform, {
+        releaseInfo: githubRelease,
+      })
+    : {
+        label: 'Unavailable',
+        tone: 'neutral' as const,
+        canInstall: false,
+        isGuided: false,
+        reason: '',
+        disabledActionLabel: 'Unavailable',
+        canViewSource: false,
+        requiresReleaseCheck: false,
+      }
+
+  useEffect(() => {
+    if (!plugin) {
+      return
+    }
+
+    if (trackedPluginViewRef.current === plugin.id) {
+      return
+    }
+
+    trackedPluginViewRef.current = plugin.id
+    trackEvent(
+      'plugin_view',
+      getPluginAnalyticsProperties(plugin, bootstrap, installedPlugin, {
+        compatibility: compatibility.label,
+        pluginState,
+      }),
+    )
+  }, [bootstrap, compatibility.label, installedPlugin, plugin, pluginState])
+
   if (!plugin) {
     return (
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-6">
@@ -127,10 +168,6 @@ export function PluginDetailsPage() {
     null
   const isScriptEntry = isScriptPlugin(plugin, installedPlugin, selectedGitHubAsset?.name)
   const pluginTypeLabel = getPluginTypeLabel(plugin, installedPlugin, selectedGitHubAsset?.name)
-  const pluginState = getCatalogPluginState(plugin, installedPlugin)
-  const compatibility = getPluginCompatibility(plugin, currentPlatform, {
-    releaseInfo: githubRelease,
-  })
   const releaseCheckPending =
     isReleaseLoading &&
     !recommendedPackage &&
@@ -202,6 +239,15 @@ export function PluginDetailsPage() {
                       <Badge tone="warning">Installed externally</Badge>
                     ) : null}
                     {isUpdateAvailable ? <Badge tone="warning">Update available</Badge> : null}
+                    {installedPlugin?.verificationStatus === 'verified' ? (
+                      <Badge tone="success">Verified files</Badge>
+                    ) : null}
+                    {installedPlugin?.verificationStatus === 'missing-files' ? (
+                      <Badge tone="danger">Verification failed</Badge>
+                    ) : null}
+                    {installedPlugin?.backup ? (
+                      <Badge tone="neutral">Rollback snapshot</Badge>
+                    ) : null}
                   </div>
                 </div>
 
@@ -274,6 +320,11 @@ export function PluginDetailsPage() {
                     ) : null}
                   </div>
                 ) : null}
+                {installedPlugin?.backup ? (
+                  <p className="mt-3 text-sm leading-7 text-slate-300">
+                    This managed install kept a rollback snapshot before overwriting existing files.
+                  </p>
+                ) : null}
               </div>
 
               {(alternatePackages.length > 0 || githubAssets.length > 1) && canInstall ? (
@@ -318,6 +369,28 @@ export function PluginDetailsPage() {
                   {formatSupportedPlatforms(plugin.supportedPlatforms)}
                 </dd>
               </div>
+              {installedPlugin ? (
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="text-slate-500">Install status</dt>
+                  <dd className="text-right text-slate-300">
+                    {installedPlugin.managed ? 'Installed (managed)' : 'Installed externally'}
+                  </dd>
+                </div>
+              ) : null}
+              {installedPlugin?.lastVerifiedAt ? (
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="text-slate-500">Last verified</dt>
+                  <dd className="text-right text-slate-300">
+                    {formatDisplayDate(installedPlugin.lastVerifiedAt)}
+                  </dd>
+                </div>
+              ) : null}
+              {installedPlugin?.backup ? (
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="text-slate-500">Rollback snapshot</dt>
+                  <dd className="text-right text-slate-300">Available</dd>
+                </div>
+              ) : null}
               <div className="flex items-center justify-between gap-4">
                 <dt className="text-slate-500">OBS support</dt>
                 <dd className="text-right text-slate-300">{plugin.supportedOBSVersions}</dd>
@@ -459,6 +532,30 @@ export function PluginDetailsPage() {
               </Button>
             ) : null}
           </div>
+
+          {recentHistory.length > 0 ? (
+            <div className="rounded-xl border border-white/10 bg-white/[0.04] p-4">
+              <h2 className="text-[18px] font-semibold text-white">Recent activity</h2>
+              <div className="mt-4 space-y-3">
+                {recentHistory.map((entry) => (
+                  <div
+                    className="rounded-lg border border-white/8 bg-white/[0.03] p-3"
+                    key={`${entry.timestamp}-${entry.action}`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <Badge tone={entry.managed ? 'success' : 'neutral'}>
+                        {entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
+                      </Badge>
+                      <span className="text-xs text-slate-500">
+                        {formatDisplayDate(entry.timestamp)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">{entry.message}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </aside>
       </section>
     </div>

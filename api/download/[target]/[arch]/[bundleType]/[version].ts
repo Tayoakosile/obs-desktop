@@ -27,6 +27,9 @@ export default async function handler(request: VercelRequest, response: VercelRe
     return sendError(response, 400, 'Missing download route parameters.')
   }
 
+  const { getPostHogClient } = await import('../../../../_lib/posthog')
+  const posthog = getPostHogClient()
+
   try {
     const payload = await resolveUpdateCatalog({
       request,
@@ -41,6 +44,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const platformKey = `${target}-${arch}-${bundleType}`
     const platform = payload.platforms[platformKey]
     if (!platform) {
+      await posthog.shutdown()
       return sendError(
         response,
         404,
@@ -50,6 +54,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     const requestedVersion = version.startsWith('v') ? version.slice(1) : version
     if (requestedVersion !== payload.latestVersion) {
+      await posthog.shutdown()
       return sendError(response, 404, 'Requested version does not match the selected release.')
     }
 
@@ -58,6 +63,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const repo = process.env.GITHUB_REPO?.trim()
 
     if (!token || !owner || !repo) {
+      await posthog.shutdown()
       return sendError(response, 500, 'GitHub release proxy is not configured correctly.')
     }
 
@@ -75,6 +81,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     if (!githubReleaseResponse.ok) {
       const text = await githubReleaseResponse.text()
+      await posthog.shutdown()
       return sendError(
         response,
         502,
@@ -88,6 +95,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
     const matchingAsset = release.assets.find((asset) => asset.name === platform.fileName)
 
     if (!matchingAsset) {
+      await posthog.shutdown()
       return sendError(response, 404, 'Requested asset is no longer present in the GitHub release.')
     }
 
@@ -103,12 +111,28 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     if (!assetResponse.ok || !assetResponse.body) {
       const text = await assetResponse.text()
+      await posthog.shutdown()
       return sendError(
         response,
         502,
         `Could not download the GitHub release asset (${assetResponse.status}): ${text || assetResponse.statusText}`,
       )
     }
+
+    posthog.capture({
+      distinctId: `${target}-${arch}`,
+      event: 'update downloaded',
+      properties: {
+        target,
+        arch,
+        bundleType,
+        version: payload.latestVersion,
+        channel: payload.channel,
+        fileName: platform.fileName,
+        fileSize: platform.size,
+      },
+    })
+    await posthog.shutdown()
 
     response.setHeader('Cache-Control', 'private, no-store')
     response.setHeader('Content-Disposition', `attachment; filename="${platform.fileName}"`)
@@ -124,6 +148,7 @@ export default async function handler(request: VercelRequest, response: VercelRe
 
     Readable.fromWeb(assetResponse.body as never).pipe(response)
   } catch (error) {
+    await posthog.shutdown()
     const message = error instanceof Error ? error.message : 'Could not proxy the update asset.'
     console.error('[update-api] download proxy failed', message)
     return sendError(response, 500, message)

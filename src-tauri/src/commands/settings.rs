@@ -7,10 +7,10 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::commands::detect_obs::detect_obs_installation;
-use crate::commands::store::{load_state, save_state};
+use crate::commands::store::{load_state, push_install_history, save_state};
 use crate::models::state::{
-    AppSettings, DesktopActionResponse, InstalledPluginRecord, InstalledPluginSourceType,
-    PersistedState, UninstallResponse,
+    AppSettings, DesktopActionResponse, InstallHistoryAction, InstallHistoryEntry,
+    InstalledPluginRecord, InstalledPluginSourceType, PersistedState, UninstallResponse,
 };
 use crate::utils::errors::AppError;
 
@@ -229,6 +229,7 @@ pub fn export_logs(app: AppHandle) -> Result<DesktopActionResponse, String> {
         "settings": state.settings,
         "obsDetection": detection,
         "installedPlugins": installed_plugins,
+        "installHistory": state.install_history,
         "logFiles": log_files,
     });
 
@@ -254,6 +255,9 @@ pub fn reset_app_state(app: AppHandle) -> Result<DesktopActionResponse, String> 
 
     let cache_dir = app.path().app_cache_dir().map_err(|error| error.to_string())?;
     let removed = remove_directory_contents(&cache_dir).map_err(|error| error.to_string())?;
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        let _ = fs::remove_dir_all(app_data_dir.join("install-backups"));
+    }
 
     Ok(DesktopActionResponse {
         message: "App settings and tracked install history were reset. Existing OBS files were left untouched.".to_string(),
@@ -309,6 +313,30 @@ pub fn uninstall_plugin(app: AppHandle, plugin_id: String) -> Result<UninstallRe
         }
     }
 
+    push_install_history(
+        &mut state,
+        InstallHistoryEntry {
+            plugin_id: record.plugin_id.clone(),
+            plugin_name: record.plugin_id.clone(),
+            version: Some(record.installed_version.clone()),
+            action: InstallHistoryAction::Uninstall,
+            managed: record.managed,
+            install_location: Some(record.install_location.clone()),
+            message: if removed_files == 0 {
+                "Tracked install record removed after uninstall; files were already missing."
+                    .to_string()
+            } else {
+                format!("Removed {} tracked file(s) from the OBS install.", removed_files)
+            },
+            timestamp: Utc::now().to_rfc3339(),
+            file_count: removed_files,
+            backup_root: record.backup.as_ref().map(|backup| backup.backup_root.clone()),
+            verification_status: record.verification_status.clone(),
+        },
+    );
+    if let Some(backup_root) = record.backup.as_ref().map(|backup| backup.backup_root.clone()) {
+        let _ = fs::remove_dir_all(backup_root);
+    }
     state.installed_plugins.remove(&plugin_id);
     save_state(&app, &state).map_err(|error| error.to_string())?;
 

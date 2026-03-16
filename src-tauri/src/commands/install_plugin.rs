@@ -21,7 +21,7 @@ use crate::commands::plugin_paths::{
     inspect_archive_install, ArchiveLayout, InstallCopyOperation, PlannedArchiveKind,
 };
 use crate::commands::detect_obs::apply_saved_install_scope;
-use crate::commands::store::{load_state, save_state};
+use crate::commands::store::{load_state, push_install_history, save_state};
 use crate::commands::validate_obs::validate_obs_path;
 use crate::models::plugin::{
     PluginCatalogEntry, PluginPackage, PluginPackageFileType, PluginPackageInstallType,
@@ -29,8 +29,10 @@ use crate::models::plugin::{
 };
 use crate::models::state::{
     CancelInstallResponse, GitHubRejectedAsset, GitHubReleaseAssetOption, GitHubReleaseInfo,
-    InstallKind, InstallProgressEvent, InstallRequest, InstallResponse, InstallReviewPlan,
-    InstalledPluginRecord, InstalledPluginSourceType, InstalledPluginStatus,
+    InstallBackupRecord, InstallHistoryAction, InstallHistoryEntry, InstallKind,
+    InstallProgressEvent, InstallRequest, InstallResponse, InstallReviewPlan,
+    InstallVerificationStatus, InstalledPluginRecord, InstalledPluginSourceType,
+    InstalledPluginStatus,
 };
 use crate::utils::catalog::load_plugin_catalog;
 use crate::utils::errors::AppError;
@@ -81,6 +83,22 @@ struct CopyEntry {
     source: PathBuf,
     target: PathBuf,
     relative_target: String,
+}
+
+#[derive(Debug, Clone)]
+struct BackupEntry {
+    target: PathBuf,
+    backup: PathBuf,
+    relative_target: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct CopySessionOutcome {
+    tracked_files: Vec<String>,
+    created_targets: Vec<PathBuf>,
+    created_relative_targets: Vec<String>,
+    backups: Vec<BackupEntry>,
+    backup_root: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -1489,6 +1507,143 @@ fn cleanup_created_targets(targets: &[PathBuf]) {
     }
 }
 
+fn ensure_backup_root(app: &AppHandle, plugin_id: &str) -> Result<PathBuf, AppError> {
+    let backup_root = app
+        .path()
+        .app_data_dir()?
+        .join("install-backups")
+        .join(plugin_id)
+        .join(Utc::now().format("%Y%m%d-%H%M%S").to_string());
+    fs::create_dir_all(&backup_root)?;
+    Ok(backup_root)
+}
+
+fn backup_existing_target(
+    backup_root: &Path,
+    entry: &CopyEntry,
+) -> Result<BackupEntry, AppError> {
+    let backup_path = backup_root.join(&entry.relative_target);
+
+    if let Some(parent) = backup_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    fs::copy(&entry.target, &backup_path)?;
+
+    Ok(BackupEntry {
+        target: entry.target.clone(),
+        backup: backup_path,
+        relative_target: entry.relative_target.clone(),
+    })
+}
+
+fn cleanup_backup_root(backup_root: Option<&Path>) {
+    if let Some(root) = backup_root {
+        let _ = fs::remove_dir_all(root);
+    }
+}
+
+fn rollback_copy_session(outcome: &CopySessionOutcome) -> Vec<String> {
+    let mut issues = Vec::new();
+
+    cleanup_created_targets(&outcome.created_targets);
+
+    for backup in outcome.backups.iter().rev() {
+        if let Some(parent) = backup.target.parent() {
+            if let Err(error) = fs::create_dir_all(parent) {
+                issues.push(format!(
+                    "Could not recreate {} before restoring backup: {}",
+                    parent.display(),
+                    error
+                ));
+                continue;
+            }
+        }
+
+        if let Err(error) = fs::copy(&backup.backup, &backup.target) {
+            issues.push(format!(
+                "Could not restore {} from backup: {}",
+                backup.relative_target, error
+            ));
+        }
+    }
+
+    cleanup_backup_root(outcome.backup_root.as_deref());
+    issues
+}
+
+fn build_rollback_message(base: &str, issues: &[String]) -> String {
+    if issues.is_empty() {
+        format!("{base} Changes from this run were rolled back.")
+    } else {
+        format!(
+            "{base} OBS Plugin Installer attempted to roll back the changes from this run, but some items still need manual attention: {}",
+            issues.join(" | ")
+        )
+    }
+}
+
+fn verify_copy_session(entries: &[CopyEntry]) -> Result<(), Vec<String>> {
+    let missing = entries
+        .iter()
+        .filter(|entry| !entry.target.exists())
+        .map(|entry| entry.relative_target.clone())
+        .collect::<Vec<_>>();
+
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(missing)
+    }
+}
+
+fn build_install_backup_record(outcome: &CopySessionOutcome) -> Option<InstallBackupRecord> {
+    let backup_root = outcome.backup_root.as_ref()?;
+    let overwritten_files = outcome
+        .backups
+        .iter()
+        .map(|backup| backup.relative_target.clone())
+        .collect::<Vec<_>>();
+
+    Some(InstallBackupRecord {
+        backup_root: backup_root.display().to_string(),
+        overwritten_files,
+        created_files: outcome.created_relative_targets.clone(),
+    })
+}
+
+fn cleanup_previous_backup(
+    previous_record: Option<&InstalledPluginRecord>,
+    next_backup_root: Option<&str>,
+) {
+    let Some(previous_backup_root) = previous_record
+        .and_then(|record| record.backup.as_ref())
+        .map(|backup| backup.backup_root.as_str())
+    else {
+        return;
+    };
+
+    if next_backup_root == Some(previous_backup_root) {
+        return;
+    }
+
+    let _ = fs::remove_dir_all(previous_backup_root);
+}
+
+fn infer_install_history_action(
+    previous_record: Option<&InstalledPluginRecord>,
+    plugin_version: &str,
+) -> InstallHistoryAction {
+    match previous_record {
+        None => InstallHistoryAction::Install,
+        Some(previous) if previous.status == InstalledPluginStatus::MissingFiles => {
+            InstallHistoryAction::Repair
+        }
+        Some(previous) if previous.installed_version != plugin_version => InstallHistoryAction::Update,
+        Some(_) => InstallHistoryAction::Repair,
+    }
+}
+
 fn copy_entries(
     app: &AppHandle,
     plugin: &PluginCatalogEntry,
@@ -1496,7 +1651,7 @@ fn copy_entries(
     overwrite: bool,
     install_label: &str,
     token: &Arc<AtomicBool>,
-) -> Result<Vec<String>, InstallResponse> {
+) -> Result<CopySessionOutcome, InstallResponse> {
     if entries.is_empty() {
         return Err(failure_response(
             &plugin.id,
@@ -1535,48 +1690,103 @@ fn copy_entries(
     }
 
     let total = entries.len();
-    let mut tracked_files = Vec::with_capacity(total);
-    let mut created_targets = Vec::new();
+    let mut outcome = CopySessionOutcome::default();
+    outcome.tracked_files = Vec::with_capacity(total);
 
     for (index, entry) in entries.iter().enumerate() {
         if token.load(Ordering::SeqCst) {
-            cleanup_created_targets(&created_targets);
+            let issues = rollback_copy_session(&outcome);
             return Err(canceled_response(
                 &plugin.id,
-                "The install was canceled before all files were copied. Partial files from this run were cleaned up where possible.",
+                build_rollback_message(
+                    "The install was canceled before all files were copied.",
+                    &issues,
+                ),
                 app,
             ));
         }
 
         let target_preexisted = entry.target.exists();
+        if target_preexisted {
+            let backup_root = match outcome.backup_root.clone() {
+                Some(path) => path,
+                None => match ensure_backup_root(app, &plugin.id) {
+                    Ok(path) => {
+                        outcome.backup_root = Some(path.clone());
+                        path
+                    }
+                    Err(error) => {
+                        return Err(failure_response(
+                            &plugin.id,
+                            "BACKUP_FAILED",
+                            format!(
+                                "Could not create a safe backup workspace before overwriting files in {}: {}",
+                                install_label, error
+                            ),
+                            app,
+                        ))
+                    }
+                },
+            };
+            match backup_existing_target(&backup_root, entry) {
+                Ok(backup_entry) => outcome.backups.push(backup_entry),
+                Err(error) => {
+                    let issues = rollback_copy_session(&outcome);
+                    return Err(failure_response(
+                        &plugin.id,
+                        "BACKUP_FAILED",
+                        build_rollback_message(
+                            &format!(
+                                "Could not back up {} before overwriting it: {}",
+                                entry.relative_target, error
+                            ),
+                            &issues,
+                        ),
+                        app,
+                    ));
+                }
+            }
+        }
+
         if let Some(parent) = entry.target.parent() {
             if let Err(error) = fs::create_dir_all(parent) {
+                let issues = rollback_copy_session(&outcome);
                 return Err(failure_response(
                     &plugin.id,
                     "INSTALL_FAILED",
-                    format!("Could not create the install directory: {}", error),
+                    build_rollback_message(
+                        &format!("Could not create the install directory: {}", error),
+                        &issues,
+                    ),
                     app,
                 ));
             }
         }
 
         if let Err(error) = fs::copy(&entry.source, &entry.target) {
+            let issues = rollback_copy_session(&outcome);
             return Err(failure_response(
                 &plugin.id,
                 "INSTALL_FAILED",
-                format!(
-                    "Could not copy the downloaded files into {}: {}",
-                    install_label, error
+                build_rollback_message(
+                    &format!(
+                        "Could not copy the downloaded files into {}: {}",
+                        install_label, error
+                    ),
+                    &issues,
                 ),
                 app,
             ));
         }
 
         if !target_preexisted {
-            created_targets.push(entry.target.clone());
+            outcome.created_targets.push(entry.target.clone());
+            outcome
+                .created_relative_targets
+                .push(entry.relative_target.clone());
         }
 
-        tracked_files.push(entry.relative_target.clone());
+        outcome.tracked_files.push(entry.relative_target.clone());
 
         let progress = 72 + (((index + 1) as f64 / total as f64) * 26.0).round() as u8;
         emit_progress(
@@ -1595,7 +1805,7 @@ fn copy_entries(
         );
     }
 
-    Ok(tracked_files)
+    Ok(outcome)
 }
 
 fn open_path(target: &Path) -> Result<(), AppError> {
@@ -1789,6 +1999,7 @@ fn finalize_external_download(
     };
 
     let mut state = load_state(app)?;
+    let previous_record = state.installed_plugins.get(&plugin.id).cloned();
     let installed_plugin = InstalledPluginRecord {
         plugin_id: plugin.id.clone(),
         installed_version: plugin.version.clone(),
@@ -1805,12 +2016,38 @@ fn finalize_external_download(
         install_kind: InstallKind::Guided,
         package_id,
         download_path: Some(download_path.display().to_string()),
+        backup: None,
+        verification_status: Some(InstallVerificationStatus::Unverified),
+        last_verified_at: Some(Utc::now().to_rfc3339()),
     };
 
+    push_install_history(
+        &mut state,
+        InstallHistoryEntry {
+            plugin_id: plugin.id.clone(),
+            plugin_name: plugin.name.clone(),
+            version: Some(plugin.version.clone()),
+            action: infer_install_history_action(previous_record.as_ref(), &plugin.version),
+            managed: true,
+            install_location: Some(
+                download_path
+                    .parent()
+                    .unwrap_or(download_path)
+                    .display()
+                    .to_string(),
+            ),
+            message: detail.clone(),
+            timestamp: Utc::now().to_rfc3339(),
+            file_count: 0,
+            backup_root: None,
+            verification_status: Some(InstallVerificationStatus::Unverified),
+        },
+    );
     state
         .installed_plugins
         .insert(plugin.id.clone(), installed_plugin.clone());
     save_state(app, &state)?;
+    cleanup_previous_backup(previous_record.as_ref(), None);
 
     emit_progress(
         app,
@@ -2041,29 +2278,74 @@ fn finalize_obs_archive_install(
     token: &Arc<AtomicBool>,
 ) -> Result<InstallResponse, AppError> {
     let entries = collect_copy_entries(&operations, install_root)?;
-    let tracked_files = match copy_entries(app, plugin, &entries, overwrite, install_label, token) {
-        Ok(tracked_files) => tracked_files,
+    let copy_outcome = match copy_entries(app, plugin, &entries, overwrite, install_label, token) {
+        Ok(copy_outcome) => copy_outcome,
         Err(response) => return Ok(response),
     };
+    if let Err(missing_files) = verify_copy_session(&entries) {
+        let rollback_issues = rollback_copy_session(&copy_outcome);
+        return Ok(failure_response(
+            &plugin.id,
+            "INSTALL_VERIFY_FAILED",
+            build_rollback_message(
+                &format!(
+                    "The install finished copying files, but verification failed. Missing files: {}",
+                    missing_files.join(", ")
+                ),
+                &rollback_issues,
+            ),
+            app,
+        ));
+    }
 
     let mut state = load_state(app)?;
+    let previous_record = state.installed_plugins.get(&plugin.id).cloned();
     let installed_plugin = InstalledPluginRecord {
         plugin_id: plugin.id.clone(),
         installed_version: plugin.version.clone(),
         installed_at: Utc::now().to_rfc3339(),
         managed: true,
         install_location: install_root.display().to_string(),
-        installed_files: tracked_files,
+        installed_files: copy_outcome.tracked_files.clone(),
         status: InstalledPluginStatus::Installed,
         source_type: InstalledPluginSourceType::Archive,
         install_kind: InstallKind::Full,
         package_id,
         download_path: None,
+        backup: build_install_backup_record(&copy_outcome),
+        verification_status: Some(InstallVerificationStatus::Verified),
+        last_verified_at: Some(Utc::now().to_rfc3339()),
     };
+    push_install_history(
+        &mut state,
+        InstallHistoryEntry {
+            plugin_id: plugin.id.clone(),
+            plugin_name: plugin.name.clone(),
+            version: Some(plugin.version.clone()),
+            action: infer_install_history_action(previous_record.as_ref(), &plugin.version),
+            managed: true,
+            install_location: Some(install_root.display().to_string()),
+            message: "Managed OBS plugin install completed and verification passed.".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            file_count: copy_outcome.tracked_files.len(),
+            backup_root: installed_plugin
+                .backup
+                .as_ref()
+                .map(|backup| backup.backup_root.clone()),
+            verification_status: Some(InstallVerificationStatus::Verified),
+        },
+    );
     state
         .installed_plugins
         .insert(plugin.id.clone(), installed_plugin.clone());
     save_state(app, &state)?;
+    cleanup_previous_backup(
+        previous_record.as_ref(),
+        installed_plugin
+            .backup
+            .as_ref()
+            .map(|backup| backup.backup_root.as_str()),
+    );
 
     emit_progress(
         app,
@@ -2130,7 +2412,7 @@ fn finalize_standalone_operations_install(
     token: &Arc<AtomicBool>,
 ) -> Result<InstallResponse, AppError> {
     let entries = collect_copy_entries(&operations, install_root)?;
-    let tracked_files = match copy_entries(
+    let copy_outcome = match copy_entries(
         app,
         plugin,
         &entries,
@@ -2138,28 +2420,73 @@ fn finalize_standalone_operations_install(
         "the managed desktop tools folder",
         token,
     ) {
-        Ok(tracked_files) => tracked_files,
+        Ok(copy_outcome) => copy_outcome,
         Err(response) => return Ok(response),
     };
+    if let Err(missing_files) = verify_copy_session(&entries) {
+        let rollback_issues = rollback_copy_session(&copy_outcome);
+        return Ok(failure_response(
+            &plugin.id,
+            "INSTALL_VERIFY_FAILED",
+            build_rollback_message(
+                &format!(
+                    "The tool install finished copying files, but verification failed. Missing files: {}",
+                    missing_files.join(", ")
+                ),
+                &rollback_issues,
+            ),
+            app,
+        ));
+    }
 
     let mut state = load_state(app)?;
+    let previous_record = state.installed_plugins.get(&plugin.id).cloned();
     let installed_plugin = InstalledPluginRecord {
         plugin_id: plugin.id.clone(),
         installed_version: plugin.version.clone(),
         installed_at: Utc::now().to_rfc3339(),
         managed: true,
         install_location: install_root.display().to_string(),
-        installed_files: tracked_files,
+        installed_files: copy_outcome.tracked_files.clone(),
         status: InstalledPluginStatus::Installed,
         source_type: InstalledPluginSourceType::StandaloneTool,
         install_kind: InstallKind::Full,
         package_id,
         download_path: Some(install_root.display().to_string()),
+        backup: build_install_backup_record(&copy_outcome),
+        verification_status: Some(InstallVerificationStatus::Verified),
+        last_verified_at: Some(Utc::now().to_rfc3339()),
     };
+    push_install_history(
+        &mut state,
+        InstallHistoryEntry {
+            plugin_id: plugin.id.clone(),
+            plugin_name: plugin.name.clone(),
+            version: Some(plugin.version.clone()),
+            action: infer_install_history_action(previous_record.as_ref(), &plugin.version),
+            managed: true,
+            install_location: Some(install_root.display().to_string()),
+            message: "Managed desktop tool install completed and verification passed.".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            file_count: copy_outcome.tracked_files.len(),
+            backup_root: installed_plugin
+                .backup
+                .as_ref()
+                .map(|backup| backup.backup_root.clone()),
+            verification_status: Some(InstallVerificationStatus::Verified),
+        },
+    );
     state
         .installed_plugins
         .insert(plugin.id.clone(), installed_plugin.clone());
     save_state(app, &state)?;
+    cleanup_previous_backup(
+        previous_record.as_ref(),
+        installed_plugin
+            .backup
+            .as_ref()
+            .map(|backup| backup.backup_root.as_str()),
+    );
 
     emit_progress(
         app,
@@ -2217,7 +2544,7 @@ fn install_script_file(
         .display()
         .to_string();
 
-    let tracked_files = match copy_entries(
+    let copy_outcome = match copy_entries(
         app,
         plugin,
         &[CopyEntry {
@@ -2229,28 +2556,84 @@ fn install_script_file(
         "your managed OBS scripts library",
         token,
     ) {
-        Ok(tracked_files) => tracked_files,
+        Ok(copy_outcome) => copy_outcome,
         Err(response) => return Ok(response),
     };
+    if let Err(missing_files) = verify_copy_session(&[CopyEntry {
+        source: downloaded_file.to_path_buf(),
+        target: target_path.clone(),
+        relative_target: copy_outcome
+            .tracked_files
+            .first()
+            .cloned()
+            .unwrap_or_else(|| filename.to_string()),
+    }]) {
+        let rollback_issues = rollback_copy_session(&copy_outcome);
+        return Ok(failure_response(
+            &plugin.id,
+            "INSTALL_VERIFY_FAILED",
+            build_rollback_message(
+                &format!(
+                    "The script file was copied, but verification failed. Missing files: {}",
+                    missing_files.join(", ")
+                ),
+                &rollback_issues,
+            ),
+            app,
+        ));
+    }
 
     let mut state = load_state(app)?;
+    let previous_record = state.installed_plugins.get(&plugin.id).cloned();
     let installed_plugin = InstalledPluginRecord {
         plugin_id: plugin.id.clone(),
         installed_version: plugin.version.clone(),
         installed_at: Utc::now().to_rfc3339(),
         managed: true,
         install_location: scripts_root.display().to_string(),
-        installed_files: tracked_files,
+        installed_files: copy_outcome.tracked_files.clone(),
         status: InstalledPluginStatus::ManualStep,
         source_type: InstalledPluginSourceType::Script,
         install_kind: InstallKind::Full,
         package_id: None,
         download_path: Some(target_path.display().to_string()),
+        backup: build_install_backup_record(&copy_outcome),
+        verification_status: Some(InstallVerificationStatus::Verified),
+        last_verified_at: Some(Utc::now().to_rfc3339()),
     };
+    push_install_history(
+        &mut state,
+        InstallHistoryEntry {
+            plugin_id: plugin.id.clone(),
+            plugin_name: plugin.name.clone(),
+            version: Some(plugin.version.clone()),
+            action: infer_install_history_action(previous_record.as_ref(), &plugin.version),
+            managed: true,
+            install_location: Some(scripts_root.display().to_string()),
+            message: format!(
+                "OBS script copied successfully. Attach it in OBS from {}.",
+                target_path.display()
+            ),
+            timestamp: Utc::now().to_rfc3339(),
+            file_count: copy_outcome.tracked_files.len(),
+            backup_root: installed_plugin
+                .backup
+                .as_ref()
+                .map(|backup| backup.backup_root.clone()),
+            verification_status: Some(InstallVerificationStatus::Verified),
+        },
+    );
     state
         .installed_plugins
         .insert(plugin.id.clone(), installed_plugin.clone());
     save_state(app, &state)?;
+    cleanup_previous_backup(
+        previous_record.as_ref(),
+        installed_plugin
+            .backup
+            .as_ref()
+            .map(|backup| backup.backup_root.as_str()),
+    );
 
     let attach_instructions = build_script_attach_instructions(&target_path);
 

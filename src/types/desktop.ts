@@ -23,6 +23,11 @@ export type InstalledPluginStatus =
   | 'manual-step'
   | 'missing-files'
 
+export type InstallVerificationStatus =
+  | 'verified'
+  | 'unverified'
+  | 'missing-files'
+
 export type ThemeMode = 'light' | 'dark' | 'system'
 export type InstallScope = 'user' | 'global'
 export type AccentColor = 'purple' | 'blue' | 'emerald' | 'amber' | 'rose' | 'slate'
@@ -67,6 +72,13 @@ export type InstalledPluginSourceType =
   | 'manual'
 
 export type InstallKind = 'full' | 'guided'
+
+export type InstallHistoryAction =
+  | 'install'
+  | 'update'
+  | 'repair'
+  | 'uninstall'
+  | 'adopt'
 
 export type InstallReviewDetectedKind = 'obs-plugin' | 'standalone-tool' | 'ambiguous'
 
@@ -121,6 +133,29 @@ export interface InstalledPluginRecord {
   installKind: InstallKind
   packageId?: string | null
   downloadPath?: string | null
+  backup?: InstallBackupRecord | null
+  verificationStatus?: InstallVerificationStatus | null
+  lastVerifiedAt?: string | null
+}
+
+export interface InstallBackupRecord {
+  backupRoot: string
+  overwrittenFiles: string[]
+  createdFiles: string[]
+}
+
+export interface InstallHistoryEntry {
+  pluginId: string
+  pluginName: string
+  version?: string | null
+  action: InstallHistoryAction
+  managed: boolean
+  installLocation?: string | null
+  message: string
+  timestamp: string
+  fileCount: number
+  backupRoot?: string | null
+  verificationStatus?: InstallVerificationStatus | null
 }
 
 export interface BootstrapPayload {
@@ -128,6 +163,7 @@ export interface BootstrapPayload {
   obsDetection: ObsDetectionState
   plugins: PluginCatalogEntry[]
   installedPlugins: InstalledPluginRecord[]
+  installHistory: InstallHistoryEntry[]
   currentPlatform: string
   currentVersion: string
 }

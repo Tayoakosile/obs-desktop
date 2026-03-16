@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
-use crate::models::state::PersistedState;
+use crate::models::state::{InstallHistoryEntry, PersistedState};
 use crate::utils::errors::AppError;
 
 fn state_file_path(app: &AppHandle) -> Result<PathBuf, AppError> {
@@ -111,4 +111,14 @@ pub fn save_state(app: &AppHandle, state: &PersistedState) -> Result<(), AppErro
 
     fs::write(state_path, serde_json::to_string_pretty(state)?)?;
     Ok(())
+}
+
+pub fn push_install_history(state: &mut PersistedState, entry: InstallHistoryEntry) {
+    state.install_history.push(entry);
+
+    const MAX_HISTORY_ENTRIES: usize = 200;
+    if state.install_history.len() > MAX_HISTORY_ENTRIES {
+        let overflow = state.install_history.len() - MAX_HISTORY_ENTRIES;
+        state.install_history.drain(0..overflow);
+    }
 }

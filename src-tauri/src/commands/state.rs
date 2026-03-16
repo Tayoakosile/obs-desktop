@@ -7,12 +7,13 @@ use walkdir::WalkDir;
 
 use crate::commands::detect_obs::{apply_saved_install_scope, detect_obs_installation};
 use crate::commands::install_plugin::managed_script_root;
-use crate::commands::store::{load_state, save_state};
+use crate::commands::store::{load_state, push_install_history, save_state};
 use crate::commands::validate_obs::validate_obs_path;
 use crate::models::plugin::{PluginCatalogEntry, SupportedPlatform};
 use crate::models::state::{
-    BootstrapPayload, InstalledPluginRecord, InstalledPluginSourceType, InstalledPluginStatus,
-    PersistedState,
+    BootstrapPayload, InstallHistoryAction, InstallHistoryEntry, InstallKind,
+    InstallVerificationStatus, InstalledPluginRecord, InstalledPluginSourceType,
+    InstalledPluginStatus, PersistedState,
 };
 use crate::utils::catalog::load_plugin_catalog;
 
@@ -61,9 +62,46 @@ pub fn tracked_path_candidates(
 
 fn refresh_installed_records(records: &mut [InstalledPluginRecord]) -> bool {
     let mut changed = false;
+    let verified_at = Utc::now().to_rfc3339();
 
     for record in records.iter_mut() {
+        let mut record_changed = false;
         if record.status == InstalledPluginStatus::ManualStep {
+            let has_tracked_files = !record.installed_files.is_empty();
+            let all_files_exist = has_tracked_files
+                && record
+                    .installed_files
+                    .iter()
+                    .all(|relative_path| {
+                        tracked_path_candidates(record, relative_path)
+                            .iter()
+                            .any(|candidate| candidate.exists())
+                    });
+
+            let next_verification_status = if !has_tracked_files {
+                InstallVerificationStatus::Unverified
+            } else if all_files_exist {
+                InstallVerificationStatus::Verified
+            } else {
+                InstallVerificationStatus::MissingFiles
+            };
+
+            if has_tracked_files
+                && !all_files_exist
+                && record.status != InstalledPluginStatus::MissingFiles
+            {
+                record.status = InstalledPluginStatus::MissingFiles;
+                record_changed = true;
+            }
+            if record.verification_status != Some(next_verification_status.clone()) {
+                record.verification_status = Some(next_verification_status);
+                record_changed = true;
+            }
+            if record.last_verified_at.is_none() {
+                record.last_verified_at = Some(verified_at.clone());
+                record_changed = true;
+            }
+            changed |= record_changed;
             continue;
         }
 
@@ -81,11 +119,25 @@ fn refresh_installed_records(records: &mut [InstalledPluginRecord]) -> bool {
         } else {
             InstalledPluginStatus::MissingFiles
         };
+        let next_verification_status = if all_files_exist {
+            InstallVerificationStatus::Verified
+        } else {
+            InstallVerificationStatus::MissingFiles
+        };
 
         if record.status != next_status {
             record.status = next_status;
-            changed = true;
+            record_changed = true;
         }
+        if record.verification_status != Some(next_verification_status.clone()) {
+            record.verification_status = Some(next_verification_status);
+            record_changed = true;
+        }
+        if record_changed || record.last_verified_at.is_none() {
+            record.last_verified_at = Some(verified_at.clone());
+            record_changed = true;
+        }
+        changed |= record_changed;
     }
 
     changed
@@ -321,9 +373,12 @@ fn detect_external_record(
             .collect(),
         status,
         source_type,
-        install_kind: crate::models::state::InstallKind::Full,
+        install_kind: InstallKind::Full,
         package_id: None,
         download_path,
+        backup: None,
+        verification_status: Some(InstallVerificationStatus::Verified),
+        last_verified_at: Some(Utc::now().to_rfc3339()),
     })
 }
 
@@ -391,6 +446,22 @@ fn merge_installed_records(
         {
             if existing.status == InstalledPluginStatus::MissingFiles {
                 existing.status = external.status;
+                existing.verification_status = external.verification_status.clone();
+                if existing.installed_files.is_empty() && !external.installed_files.is_empty() {
+                    existing.installed_files = external.installed_files.clone();
+                    existing.install_location = external.install_location.clone();
+                    existing.download_path = external.download_path.clone();
+                }
+            } else if existing.status == InstalledPluginStatus::ManualStep
+                && existing.source_type == InstalledPluginSourceType::ExternalInstaller
+                && external.status == InstalledPluginStatus::Installed
+            {
+                existing.status = InstalledPluginStatus::Installed;
+                existing.verification_status = external.verification_status.clone();
+                if existing.installed_files.is_empty() && !external.installed_files.is_empty() {
+                    existing.installed_files = external.installed_files.clone();
+                    existing.install_location = external.install_location.clone();
+                }
             }
             continue;
         }
@@ -454,6 +525,7 @@ pub fn bootstrap(app: AppHandle) -> Result<BootstrapPayload, String> {
         obs_detection: detection,
         plugins,
         installed_plugins,
+        install_history: state.install_history,
         current_platform: SupportedPlatform::current().as_str().to_string(),
         current_version: app.package_info().version.to_string(),
     })
@@ -477,6 +549,26 @@ pub fn adopt_installation(app: AppHandle, plugin_id: String) -> Result<Installed
     adopted.managed = true;
     adopted.installed_at = Utc::now().to_rfc3339();
 
+    push_install_history(
+        &mut state,
+        InstallHistoryEntry {
+            plugin_id: adopted.plugin_id.clone(),
+            plugin_name: plugins
+                .iter()
+                .find(|plugin| plugin.id == adopted.plugin_id)
+                .map(|plugin| plugin.name.clone())
+                .unwrap_or_else(|| adopted.plugin_id.clone()),
+            version: Some(adopted.installed_version.clone()),
+            action: InstallHistoryAction::Adopt,
+            managed: true,
+            install_location: Some(adopted.install_location.clone()),
+            message: "The existing OBS installation was adopted into managed state.".to_string(),
+            timestamp: Utc::now().to_rfc3339(),
+            file_count: adopted.installed_files.len(),
+            backup_root: adopted.backup.as_ref().map(|backup| backup.backup_root.clone()),
+            verification_status: adopted.verification_status.clone(),
+        },
+    );
     state
         .installed_plugins
         .insert(plugin_id, adopted.clone());

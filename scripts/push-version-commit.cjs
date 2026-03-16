@@ -64,6 +64,7 @@ try {
     "package-lock.json",
     "src-tauri/tauri.conf.json",
     "src-tauri/Cargo.toml",
+    ".github/workflows/release.yml",
   ]);
 
   run("git", ["commit", "-m", commitMessage]);

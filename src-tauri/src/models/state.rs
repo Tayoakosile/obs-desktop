@@ -89,6 +89,24 @@ pub enum InstallKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+pub enum InstallVerificationStatus {
+    Verified,
+    Unverified,
+    MissingFiles,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum InstallHistoryAction {
+    Install,
+    Update,
+    Repair,
+    Uninstall,
+    Adopt,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
 pub enum InstallReviewDetectedKind {
     ObsPlugin,
     StandaloneTool,
@@ -159,13 +177,48 @@ pub struct InstalledPluginRecord {
     pub install_kind: InstallKind,
     pub package_id: Option<String>,
     pub download_path: Option<String>,
+    #[serde(default)]
+    pub backup: Option<InstallBackupRecord>,
+    #[serde(default)]
+    pub verification_status: Option<InstallVerificationStatus>,
+    #[serde(default)]
+    pub last_verified_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallBackupRecord {
+    pub backup_root: String,
+    #[serde(default)]
+    pub overwritten_files: Vec<String>,
+    #[serde(default)]
+    pub created_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallHistoryEntry {
+    pub plugin_id: String,
+    pub plugin_name: String,
+    pub version: Option<String>,
+    pub action: InstallHistoryAction,
+    pub managed: bool,
+    pub install_location: Option<String>,
+    pub message: String,
+    pub timestamp: String,
+    pub file_count: usize,
+    pub backup_root: Option<String>,
+    pub verification_status: Option<InstallVerificationStatus>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct PersistedState {
     pub settings: AppSettings,
+    #[serde(default)]
     pub installed_plugins: BTreeMap<String, InstalledPluginRecord>,
+    #[serde(default)]
+    pub install_history: Vec<InstallHistoryEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -175,6 +228,7 @@ pub struct BootstrapPayload {
     pub obs_detection: ObsDetectionState,
     pub plugins: Vec<PluginCatalogEntry>,
     pub installed_plugins: Vec<InstalledPluginRecord>,
+    pub install_history: Vec<InstallHistoryEntry>,
     pub current_platform: String,
     pub current_version: String,
 }
