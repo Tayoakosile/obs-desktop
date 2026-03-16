@@ -10,6 +10,7 @@ pub struct AnalyticsEventRequest {
     pub event_name: String,
     pub distinct_id: String,
     pub timestamp: Option<String>,
+    pub person_profiles: Option<String>,
     #[serde(default)]
     pub properties: Value,
 }
@@ -61,6 +62,15 @@ pub async fn capture_analytics_event(request: AnalyticsEventRequest) -> Result<(
     payload.insert("api_key".to_string(), Value::String(api_key));
     payload.insert("event".to_string(), Value::String(event_name));
     payload.insert("distinct_id".to_string(), Value::String(distinct_id));
+    if let Some(person_profiles) = request
+        .person_profiles
+        .filter(|value| !value.trim().is_empty())
+    {
+        payload.insert(
+            "person_profiles".to_string(),
+            Value::String(person_profiles),
+        );
+    }
     payload.insert("properties".to_string(), Value::Object(properties));
     if let Some(timestamp) = request.timestamp.filter(|value| !value.trim().is_empty()) {
         payload.insert("timestamp".to_string(), Value::String(timestamp));
@@ -76,8 +86,19 @@ pub async fn capture_analytics_event(request: AnalyticsEventRequest) -> Result<(
         };
 
         let url = format!("{}/capture/", api_host);
-        if let Err(error) = client.post(url).json(&payload).send().await {
-            eprintln!("[analytics] Could not send analytics event: {}", error);
+        match client.post(url).json(&payload).send().await {
+            Ok(response) if response.status().is_success() => {}
+            Ok(response) => {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                eprintln!(
+                    "[analytics] PostHog rejected event with status {}: {}",
+                    status, body
+                );
+            }
+            Err(error) => {
+                eprintln!("[analytics] Could not send analytics event: {}", error);
+            }
         }
     });
 

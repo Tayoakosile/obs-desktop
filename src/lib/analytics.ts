@@ -14,6 +14,7 @@ const POSTHOG_API_HOST =
 
 const APP_VERSION = packageJson.version
 const ANALYTICS_ENVIRONMENT = 'desktop'
+const PERSON_PROFILE_MODE = 'always' as const
 
 type TrackableEventName =
   | 'app_open'
@@ -93,6 +94,7 @@ function buildEventPayload(
     api_key: POSTHOG_PROJECT_KEY,
     event: eventName,
     distinct_id: distinctId,
+    person_profiles: PERSON_PROFILE_MODE,
     properties: {
       ...properties,
       distinct_id: distinctId,
@@ -120,8 +122,26 @@ async function captureWithFetch(
     eventName: eventName,
     distinctId: payload.distinct_id,
     timestamp: payload.timestamp,
+    personProfiles: payload.person_profiles,
     properties: payload.properties,
   })
+}
+
+function captureWithJs(
+  eventName: TrackableEventName,
+  properties: Record<string, unknown>,
+) {
+  try {
+    posthog.capture(eventName, {
+      ...properties,
+      app_version: APP_VERSION,
+      platform: inferRuntimePlatform(),
+      environment: ANALYTICS_ENVIRONMENT,
+      install_id: getOrCreateInstallId(),
+    })
+  } catch (error) {
+    console.warn('[analytics] posthog-js capture failed', error)
+  }
 }
 
 async function identifyWithDesktopBridge(userAccountId?: string | null) {
@@ -138,6 +158,7 @@ async function identifyWithDesktopBridge(userAccountId?: string | null) {
     eventName: '$identify',
     distinctId,
     timestamp: new Date().toISOString(),
+    personProfiles: PERSON_PROFILE_MODE,
     properties: {
       distinct_id: distinctId,
       $anon_distinct_id: distinctId,
@@ -184,6 +205,7 @@ async function initializeAnalytics(userAccountId?: string | null) {
         persistence: 'localStorage',
         request_batching: false,
         api_transport: 'fetch',
+        person_profiles: PERSON_PROFILE_MODE,
       })
       applyAnalyticsIdentity(userAccountId)
     })
@@ -244,6 +266,7 @@ export function trackEvent(
 ) {
   scheduleAnalyticsTask(async () => {
     await initializeAnalytics()
+    captureWithJs(eventName, properties)
 
     try {
       await captureWithFetch(eventName, properties)

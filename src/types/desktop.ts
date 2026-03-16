@@ -264,5 +264,6 @@ export interface AnalyticsCaptureRequest {
   eventName: string
   distinctId: string
   timestamp?: string | null
+  personProfiles?: 'always' | 'identified_only' | 'never' | null
   properties: Record<string, unknown>
 }
