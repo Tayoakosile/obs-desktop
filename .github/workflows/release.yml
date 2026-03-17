@@ -22,7 +22,7 @@ permissions:
 jobs:
   build-release:
     name: Build Windows x64
-    runs-on: [self-hosted, windows, arm64]
+    runs-on: self-hosted
 
     steps:
       - name: Check out source
