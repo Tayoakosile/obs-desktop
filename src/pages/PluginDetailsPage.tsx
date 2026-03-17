@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import {
   ArrowUpCircle,
+  Check,
   ChevronDown,
   Download,
   ExternalLink,
@@ -169,6 +170,9 @@ export function PluginDetailsPage() {
     githubAssets.find((asset) => asset.name === selectedGitHubAssetName) ??
     githubRelease?.selectedAsset ??
     null
+  const hasManualAssetSelection =
+    Boolean(selectedGitHubAssetName) &&
+    selectedGitHubAsset?.name !== githubRelease?.selectedAsset?.name
   const isScriptEntry = isScriptPlugin(plugin, installedPlugin, selectedGitHubAsset?.name)
   const pluginTypeLabel = getPluginTypeLabel(plugin, installedPlugin, selectedGitHubAsset?.name)
   const resolvedEntryFiles = resolvePrimaryEntryFiles(plugin, installedPlugin)
@@ -190,6 +194,10 @@ export function PluginDetailsPage() {
     activePlugin.manualInstallUrl ??
     githubReleasesUrl ??
     activePlugin.homepageUrl
+  const githubAuthorProfile = activePlugin.githubRepo
+    ? `https://github.com/${activePlugin.githubRepo.split('/')[0]}`
+    : null
+  const authorProfileUrl = githubAuthorProfile ?? activePlugin.homepageUrl
 
   function handleInstall() {
     if (selectedGitHubAsset) {
@@ -325,6 +333,23 @@ export function PluginDetailsPage() {
                     ? `Checking the latest release assets for ${currentPlatform}.`
                     : compatibility.reason}
                 </p>
+                {selectedGitHubAsset ? (
+                  <div className="mt-3 rounded-lg border border-primary/30 bg-primary/10 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge tone="success">Selected installer</Badge>
+                      {hasManualAssetSelection ? (
+                        <Badge tone="neutral">Manual override</Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 break-all text-sm font-semibold text-white">
+                      {selectedGitHubAsset.name}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-300">{selectedGitHubAsset.reason}</p>
+                    <p className="mt-2 text-xs text-primary/90">
+                      This installer will be used for download/install.
+                    </p>
+                  </div>
+                ) : null}
                 {isScriptEntry ? (
                   <div className="mt-3 text-sm leading-7 text-slate-300">
                     <p>Scripts are copied into the OBS scripts directory.</p>
@@ -506,24 +531,34 @@ export function PluginDetailsPage() {
                     <div className="space-y-2">
                       {githubAssets
                         .slice(0, showAdvancedAssets ? githubAssets.length : 1)
-                        .map((asset) => (
-                          <button
-                            className={[
-                              'w-full rounded-lg border p-3 text-left transition-colors',
-                              selectedGitHubAsset?.name === asset.name
-                                ? 'border-primary/30 bg-primary/10'
-                                : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]',
-                            ].join(' ')}
-                            key={asset.name}
-                            onClick={() => setSelectedGitHubAssetName(asset.name)}
-                            type="button"
-                          >
-                            <p className="break-all text-sm font-semibold text-white">
-                              {asset.name}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-400">{asset.reason}</p>
-                          </button>
-                        ))}
+                        .map((asset) => {
+                          const isSelected = selectedGitHubAsset?.name === asset.name
+
+                          return (
+                            <button
+                              className={[
+                                'w-full cursor-pointer rounded-lg border p-3 text-left transition-all duration-150',
+                                isSelected
+                                  ? 'border-primary/70 bg-primary/12 shadow-[0_0_0_1px_rgba(34,197,94,0.22)]'
+                                  : 'border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]',
+                              ].join(' ')}
+                              key={asset.name}
+                              onClick={() => setSelectedGitHubAssetName(asset.name)}
+                              type="button"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="break-all text-sm font-semibold text-white">{asset.name}</p>
+                                {isSelected ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/20 px-2 py-0.5 text-[11px] font-medium text-primary">
+                                    <Check className="size-3" />
+                                    Selected
+                                  </span>
+                                ) : null}
+                              </div>
+                              <p className="mt-1 text-xs text-slate-400">{asset.reason}</p>
+                            </button>
+                          )
+                        })}
                     </div>
                   ) : (
                     <p className="text-sm text-slate-400">
@@ -539,6 +574,12 @@ export function PluginDetailsPage() {
                     >
                       {showAdvancedAssets ? 'Show fewer assets' : 'Show all matched assets'}
                     </Button>
+                  ) : null}
+
+                  {selectedGitHubAsset ? (
+                    <p className="rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-xs text-primary/90">
+                      Using {selectedGitHubAsset.name}
+                    </p>
                   ) : null}
                 </div>
               ) : (
@@ -594,6 +635,23 @@ export function PluginDetailsPage() {
                 Open repository
               </Button>
             ) : null}
+
+            <button
+              className="w-full rounded-lg border border-white/10 bg-white/[0.03] p-3 text-left transition-colors hover:bg-white/[0.06]"
+              onClick={() => void openExternal(authorProfileUrl)}
+              type="button"
+            >
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Author profile
+              </p>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-white">{plugin.author}</p>
+                  <p className="mt-1 text-xs text-slate-400">View author page</p>
+                </div>
+                <ExternalLink className="size-4 text-slate-300" />
+              </div>
+            </button>
           </div>
 
           {recentHistory.length > 0 ? (
